@@ -1,0 +1,3 @@
+Large language models can summarize long documents quickly.
+However, developers must avoid leaking API keys and must guard against prompt injection.
+Prompt injection is when untrusted text tries to override your instructions.
