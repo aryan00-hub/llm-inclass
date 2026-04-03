@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmc-csci040-annaryan"
-version = "0.0.1"
+version = "0.0.2"
 description = "LLM chat lab project"
 readme = "README.md"
 requires-python = ">=3.10"
