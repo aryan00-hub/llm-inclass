@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmc-csci040-annaryan"
+version = "0.0.1"
+description = "LLM chat lab project"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["groq", "python-dotenv"]
+
+[project.scripts]
+chat = "chat:repl"
+
+[tool.setuptools]
+py-modules = ["chat"]
