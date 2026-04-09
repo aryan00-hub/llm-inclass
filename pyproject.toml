@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmc-csci040-annaryan"
-version = "0.0.2"
-description = "LLM chat lab project"
+version = "0.1.0"
+description = "CLI document chat agent with local tool use"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["groq", "python-dotenv"]
@@ -15,3 +15,4 @@ chat = "chat:repl"
 
 [tool.setuptools]
 py-modules = ["chat"]
+packages = ["tools"]

@@ -1,0 +1,9 @@
+[submodule "test_projects/webpage"]
+	path = test_projects/webpage
+	url = https://github.com/aryan00-hub/aryan00-hub.github.io
+[submodule "test_projects/markdown_compiler"]
+	path = test_projects/markdown_compiler
+	url = https://github.com/aryan00-hub/markdown-compiler
+[submodule "test_projects/ebay_scraper"]
+	path = test_projects/ebay_scraper
+	url = https://github.com/aryan00-hub/ebay-scraper

@@ -13,14 +13,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: '3.13'
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           pip install .
-      - name: Run integration test
+      - name: Slash command integration test
         run: |
           chat <<'EOF2'
-          I am bob.
-          What is my name?
+          /ls .github
+          /cat README.md
+          /grep "chat" "*.py"
+          /calculate 8*9
           EOF2

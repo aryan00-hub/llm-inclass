@@ -13,12 +13,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: '3.13'
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run doctests + coverage
         run: |
-          coverage run -m pytest chat.py --doctest-modules
+          coverage run -m pytest chat.py tools --doctest-modules
           coverage report -m --fail-under=90

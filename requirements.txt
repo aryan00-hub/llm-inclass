@@ -2,6 +2,6 @@ groq
 python-dotenv
 pytest
 coverage
-supply-chain-attack-poc
+flake8
 build
 twine

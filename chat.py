@@ -1,83 +1,340 @@
-"""
-LLM chat class + REPL.
+"""Document chat agent with local tools and a terminal REPL.
 
->>> from types import SimpleNamespace
->>> fake_resp = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="hello"))])
->>> fake_client = SimpleNamespace(
-...     chat=SimpleNamespace(
-...         completions=SimpleNamespace(create=lambda **kwargs: fake_resp)
-...     )
-... )
->>> c = Chat(client=fake_client)
->>> c.send_message("ping")
-'hello'
+This file defines the Chat class, tool execution flow, and interactive loop used by the `chat` command.
 """
 
+from __future__ import annotations
+
+import json
 import os
-from groq import Groq
+import shlex
+from typing import Any
+
 from dotenv import load_dotenv
+from groq import Groq
+
+from tools.calculate import TOOL_SPEC as CALCULATE_SPEC
+from tools.calculate import run_calculate
+from tools.cat_tool import TOOL_SPEC as CAT_SPEC
+from tools.cat_tool import run_cat
+from tools.grep_tool import TOOL_SPEC as GREP_SPEC
+from tools.grep_tool import run_grep
+from tools.ls_tool import TOOL_SPEC as LS_SPEC
+from tools.ls_tool import run_ls
+
+TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC]
 
 
 class Chat:
-    def __init__(self, model: str = "llama-3.1-8b-instant", client=None):
+    """A small doc-chat agent that can read local files through safe tools.
+
+    The class keeps conversation state in `messages`, supports automatic LLM tool calls,
+    and also supports manual slash-command tool calls in the REPL.
+
+    >>> from types import SimpleNamespace
+    >>> class FakeCompletions:
+    ...     def __init__(self):
+    ...         self.calls = 0
+    ...     def create(self, **kwargs):
+    ...         self.calls += 1
+    ...         if self.calls == 1:
+    ...             tool_call = SimpleNamespace(
+    ...                 id="t1",
+    ...                 function=SimpleNamespace(name="calculate", arguments='{"expression": "2+3"}')
+    ...             )
+    ...             msg = SimpleNamespace(content=None, tool_calls=[tool_call])
+    ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+    ...         msg = SimpleNamespace(content="Result is 5", tool_calls=[])
+    ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+    >>> fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    >>> chat = Chat(client=fake_client)
+    >>> chat.send_message("what is 2+3?")
+    'Result is 5'
+    >>> print(chat.handle_slash_command('/calculate 9*9'))
+    81
+    """
+
+    def __init__(self, model: str = "llama-3.1-8b-instant", client: Any | None = None, debug: bool = False):
+        """Initialize chat state and optionally inject a client for tests.
+
+        >>> c = Chat(client=object())
+        >>> isinstance(c.messages, list)
+        True
+        """
         self.model = model
-        if client is not None:
-            self.client = client
+        self._client = client
+        self.debug = debug
+        self.messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a coding assistant that can inspect project files with tools. "
+                    "Never claim to read files unless tool output shows it."
+                ),
+            }
+        ]
+
+    @property
+    def client(self) -> Any:
+        """Return API client, lazily creating one from GROQ_API_KEY if needed.
+
+        >>> from types import SimpleNamespace
+        >>> c = Chat(client=SimpleNamespace())
+        >>> c.client is c._client
+        True
+        >>> import os
+        >>> old_load = load_dotenv
+        >>> old_getenv = os.getenv
+        >>> load_dotenv = lambda: None
+        >>> os.getenv = lambda key: None
+        >>> c2 = Chat(client=None)
+        >>> try:
+        ...     _ = c2.client
+        ... except RuntimeError as e:
+        ...     print(str(e))
+        Missing GROQ_API_KEY in environment or .env
+        >>> load_dotenv = old_load
+        >>> os.getenv = old_getenv
+        """
+        if self._client is None:
+            load_dotenv()
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise RuntimeError("Missing GROQ_API_KEY in environment or .env")
+            self._client = Groq(api_key=api_key)
+        return self._client
+
+    def run_tool(self, name: str, args: dict[str, Any]) -> str:
+        """Dispatch a named tool with decoded arguments.
+
+        >>> c = Chat(client=object())
+        >>> c.run_tool("calculate", {"expression": "10-3"})
+        '7'
+        >>> c.run_tool("ls", {"path": ".."})
+        'ERROR: unsafe path'
+        >>> c.run_tool("cat", {"path": "missing.txt"})
+        'ERROR: file not found'
+        >>> isinstance(c.run_tool("grep", {"pattern": "x", "path": "*.py"}), str)
+        True
+        >>> c.run_tool("nope", {})
+        'ERROR: unknown tool: nope'
+        """
+        if name == "calculate":
+            return run_calculate(str(args.get("expression", "")))
+        if name == "ls":
+            return run_ls(str(args.get("path", ".")))
+        if name == "cat":
+            return run_cat(str(args.get("path", "")))
+        if name == "grep":
+            return run_grep(str(args.get("pattern", "")), str(args.get("path", "")))
+        return f"ERROR: unknown tool: {name}"
+
+    def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
+        """Print a debug line showing tool invocation when debug mode is enabled.
+
+        >>> c = Chat(client=object(), debug=False)
+        >>> c._debug_tool("ls", {"path": "."})
+        >>> c2 = Chat(client=object(), debug=True)
+        >>> c2._debug_tool("calculate", {"expression": "1+2"})
+        [tool] /calculate 1+2
+        >>> c2._debug_tool("cat", {"path": "README.md"})
+        [tool] /cat README.md
+        """
+        if not self.debug:
             return
 
-        load_dotenv()
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError("Missing GROQ_API_KEY in environment or .env")
-        self.client = Groq(api_key=api_key)
+        if name == "calculate":
+            print(f"[tool] /calculate {args.get('expression', '')}".rstrip())
+        elif name == "ls":
+            print(f"[tool] /ls {args.get('path', '.')}".rstrip())
+        elif name == "cat":
+            print(f"[tool] /cat {args.get('path', '')}".rstrip())
+        elif name == "grep":
+            print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
+        else:
+            print(f"[tool] /{name} {args}")
 
-    def send_message(self, user_input: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_input},
-            ],
-            temperature=0,
-            max_tokens=200,
-        )
-        return response.choices[0].message.content
+    def send_message(self, user_input: str, max_rounds: int = 6) -> str:
+        """Send user text to the model and resolve any automatic tool-calling chain.
+
+        >>> from types import SimpleNamespace
+        >>> class OneShot:
+        ...     def create(self, **kwargs):
+        ...         msg = SimpleNamespace(content="hi", tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=OneShot())))
+        >>> c.send_message("hello")
+        'hi'
+        >>> class BadJson:
+        ...     def __init__(self):
+        ...         self.calls = 0
+        ...     def create(self, **kwargs):
+        ...         self.calls += 1
+        ...         if self.calls == 1:
+        ...             tc = SimpleNamespace(id='x1', function=SimpleNamespace(name='calculate', arguments='{bad'))
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         msg = SimpleNamespace(content='ok', tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c2 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=BadJson())))
+        >>> c2.send_message("test")
+        'ok'
+        >>> class Endless:
+        ...     def create(self, **kwargs):
+        ...         func = SimpleNamespace(name='calculate', arguments='{\"expression\":\"1+1\"}')
+        ...         tc = SimpleNamespace(id='z', function=func)
+        ...         msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c3 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=Endless())))
+        >>> c3.send_message("loop", max_rounds=1)
+        'ERROR: tool loop exceeded'
+        """
+        self.messages.append({"role": "user", "content": user_input})
+
+        for _ in range(max_rounds):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                tools=TOOL_SPECS,
+                tool_choice="auto",
+                temperature=0,
+                max_tokens=500,
+            )
+            message = response.choices[0].message
+
+            tool_calls = getattr(message, "tool_calls", None) or []
+            if tool_calls:
+                self.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": getattr(message, "content", None),
+                        "tool_calls": tool_calls,
+                    }
+                )
+
+                for tool_call in tool_calls:
+                    name = tool_call.function.name
+                    raw_args = tool_call.function.arguments or "{}"
+                    try:
+                        args = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        args = {}
+                    self._debug_tool(name, args)
+                    result = self.run_tool(name, args)
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": name,
+                            "content": result,
+                        }
+                    )
+                continue
+
+            content = getattr(message, "content", "") or ""
+            self.messages.append({"role": "assistant", "content": content})
+            return content
+
+        return "ERROR: tool loop exceeded"
+
+    def handle_slash_command(self, user_input: str) -> str:
+        """Execute manual tool command and store result in context for later questions.
+
+        >>> c = Chat(client=object())
+        >>> c.handle_slash_command('/ls ..')
+        'ERROR: unsafe path'
+        >>> c.handle_slash_command('/grep hello *.md') in ('', 'README.md:hello')
+        True
+        >>> c.handle_slash_command('/')
+        'ERROR: empty command'
+        >>> c.handle_slash_command('/cat')
+        'USAGE: /cat <path>'
+        >>> c.handle_slash_command('/grep a')
+        'USAGE: /grep <regex> <path_or_glob>'
+        >>> c.handle_slash_command('/calculate')
+        'USAGE: /calculate <expression>'
+        >>> c.handle_slash_command('/bogus')
+        'ERROR: unknown command /bogus'
+        """
+        command_line = user_input[1:].strip()
+        if not command_line:
+            return "ERROR: empty command"
+
+        parts = shlex.split(command_line)
+        command = parts[0]
+        params = parts[1:]
+
+        if command == "ls":
+            path = params[0] if params else "."
+            result = run_ls(path)
+        elif command == "cat":
+            if len(params) != 1:
+                return "USAGE: /cat <path>"
+            result = run_cat(params[0])
+        elif command == "grep":
+            if len(params) != 2:
+                return "USAGE: /grep <regex> <path_or_glob>"
+            result = run_grep(params[0], params[1])
+        elif command == "calculate":
+            if not params:
+                return "USAGE: /calculate <expression>"
+            result = run_calculate(" ".join(params))
+        else:
+            return f"ERROR: unknown command /{command}"
+
+        self.messages.append({"role": "user", "content": f"/{command_line}"})
+        self.messages.append({"role": "assistant", "content": result})
+        return result
 
 
-def repl() -> None:
-    """
-    >>> def monkey_input(prompt, user_inputs=['I am bob.', 'What is my name?']):
+def repl(client: Any | None = None) -> None:
+    """Run terminal loop and route slash commands directly to tools.
+
+    >>> def monkey_input(prompt, items=['/calculate 2+2']):
     ...     try:
-    ...         user_input = user_inputs.pop(0)
-    ...         print(f'{prompt}{user_input}')
-    ...         return user_input
+    ...         x = items.pop(0)
+    ...         print(f"{prompt}{x}")
+    ...         return x
     ...     except IndexError:
     ...         raise KeyboardInterrupt
     >>> import builtins
     >>> old_input = builtins.input
-    >>> old_send = Chat.send_message
     >>> builtins.input = monkey_input
-    >>> Chat.send_message = lambda self, msg: f'ECHO: {msg}'
-    >>> repl()
-    chat> I am bob.
-    ECHO: I am bob.
-    chat> What is my name?
-    ECHO: What is my name?
+    >>> repl(client=object())
+    chat> /calculate 2+2
+    4
+    <BLANKLINE>
+    >>> builtins.input = old_input
+    >>> def monkey_input2(prompt, items=['hello']):
+    ...     try:
+    ...         x = items.pop(0)
+    ...         print(f"{prompt}{x}")
+    ...         return x
+    ...     except IndexError:
+    ...         raise KeyboardInterrupt
+    >>> old_send = Chat.send_message
+    >>> Chat.send_message = lambda self, msg: "ECHO:" + msg
+    >>> builtins.input = monkey_input2
+    >>> repl(client=object())
+    chat> hello
+    ECHO:hello
     <BLANKLINE>
     >>> builtins.input = old_input
     >>> Chat.send_message = old_send
     """
     import readline  # noqa: F401
 
-    chat = Chat()
+    chat = Chat(client=client)
     try:
         while True:
             user_input = input("chat> ")
-            response = chat.send_message(user_input)
-            print(response)
+            if user_input.startswith("/"):
+                print(chat.handle_slash_command(user_input))
+            else:
+                print(chat.send_message(user_input))
     except (KeyboardInterrupt, EOFError):
         print()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     repl()
