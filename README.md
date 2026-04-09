@@ -2,7 +2,7 @@
 
 [![Doctests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 [![Integration Tests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml)
-[![Flake8](https://github.com/aryan00-hub/llm-inclass/actions/workflows/flake8.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/flake8.yml)
+[![flake8](https://github.com/aryan00-hub/llm-inclass/actions/workflows/flake8.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/flake8.yml)
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
