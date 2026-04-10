@@ -34,6 +34,17 @@ PROVIDER_MODELS = {
 }
 
 
+def _is_tool_validation_error(exc: Exception) -> bool:
+    """Return True when provider rejected a hallucinated/invalid tool call.
+
+    >>> _is_tool_validation_error(ValueError("x"))
+    False
+    >>> _is_tool_validation_error(RuntimeError("tool call validation failed"))
+    True
+    """
+    return "tool call validation failed" in str(exc).lower()
+
+
 class Chat:
     """A small doc-chat agent that can read local files through safe tools.
 
@@ -231,14 +242,26 @@ class Chat:
         last_tool_result = ""
 
         for _ in range(max_rounds):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.messages,
-                tools=TOOL_SPECS,
-                tool_choice="auto",
-                temperature=0,
-                max_tokens=500,
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.messages,
+                    tools=TOOL_SPECS,
+                    tool_choice="auto",
+                    temperature=0,
+                    max_tokens=500,
+                )
+            except Exception as exc:
+                if not _is_tool_validation_error(exc):
+                    raise
+                # Some providers occasionally hallucinate unsupported remote tools
+                # even when local tools are provided. Retry once with tools disabled.
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.messages,
+                    temperature=0,
+                    max_tokens=500,
+                )
             message = response.choices[0].message
 
             tool_calls = getattr(message, "tool_calls", None) or []
