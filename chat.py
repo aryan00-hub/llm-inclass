@@ -211,9 +211,24 @@ class Chat:
         ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
         >>> c3 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=Endless())))
         >>> c3.send_message("loop", max_rounds=1)
-        'ERROR: tool loop exceeded'
+        '2'
+        >>> class RepeatThenStop:
+        ...     def __init__(self):
+        ...         self.calls = 0
+        ...     def create(self, **kwargs):
+        ...         self.calls += 1
+        ...         func = SimpleNamespace(name='ls', arguments='{\"path\":\".github\"}')
+        ...         tc = SimpleNamespace(id='r1', function=func)
+        ...         msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RepeatThenStop())))
+        >>> c4.send_message("what folder is in .github?", max_rounds=3).startswith("workflows")
+        True
         """
         self.messages.append({"role": "user", "content": user_input})
+        last_signature = None
+        repeat_count = 0
+        last_tool_result = ""
 
         for _ in range(max_rounds):
             response = self.client.chat.completions.create(
@@ -243,8 +258,21 @@ class Chat:
                         args = json.loads(raw_args)
                     except json.JSONDecodeError:
                         args = {}
+                    signature = (name, json.dumps(args, sort_keys=True))
+                    if signature == last_signature:
+                        repeat_count += 1
+                    else:
+                        repeat_count = 0
+                    last_signature = signature
+                    if repeat_count >= 2:
+                        return (
+                            last_tool_result
+                            if last_tool_result
+                            else "ERROR: repeated tool-call loop detected"
+                        )
                     self._debug_tool(name, args)
                     result = self.run_tool(name, args)
+                    last_tool_result = result
                     self.messages.append(
                         {
                             "role": "tool",
@@ -259,6 +287,8 @@ class Chat:
             self.messages.append({"role": "assistant", "content": content})
             return content
 
+        if last_tool_result:
+            return last_tool_result
         return "ERROR: tool loop exceeded"
 
     def handle_slash_command(self, user_input: str) -> str:
