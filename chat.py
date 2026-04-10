@@ -5,6 +5,7 @@ This file defines the Chat class, tool execution flow, and interactive loop used
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shlex
@@ -12,6 +13,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from groq import Groq
+from openai import OpenAI
 
 from tools.calculate import TOOL_SPEC as CALCULATE_SPEC
 from tools.calculate import run_calculate
@@ -23,6 +25,13 @@ from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
 
 TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC]
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+PROVIDER_MODELS = {
+    "groq": "llama-3.1-8b-instant",
+    "openai": "openai/gpt-5",
+    "anthropic": "anthropic/claude-opus-4.1",
+    "google": "google/gemini-2.5-pro",
+}
 
 
 class Chat:
@@ -54,14 +63,23 @@ class Chat:
     81
     """
 
-    def __init__(self, model: str = "llama-3.1-8b-instant", client: Any | None = None, debug: bool = False):
+    def __init__(
+        self,
+        model: str | None = None,
+        client: Any | None = None,
+        debug: bool = False,
+        provider: str = "groq",
+    ):
         """Initialize chat state and optionally inject a client for tests.
 
         >>> c = Chat(client=object())
         >>> isinstance(c.messages, list)
         True
+        >>> c.provider
+        'groq'
         """
-        self.model = model
+        self.provider = provider
+        self.model = model or PROVIDER_MODELS[provider]
         self._client = client
         self.debug = debug
         self.messages: list[dict[str, Any]] = [
@@ -83,25 +101,31 @@ class Chat:
         >>> c.client is c._client
         True
         >>> import os
-        >>> old_load = load_dotenv
         >>> old_getenv = os.getenv
-        >>> load_dotenv = lambda: None
-        >>> os.getenv = lambda key: None
-        >>> c2 = Chat(client=None)
+        >>> os.getenv = lambda key, default=None: None
+        >>> c2 = Chat(client=None, provider="google")
         >>> try:
         ...     _ = c2.client
         ... except RuntimeError as e:
-        ...     print(str(e))
-        Missing GROQ_API_KEY in environment or .env
-        >>> load_dotenv = old_load
+        ...     print("Missing OPENROUTER_API_KEY" in str(e))
+        True
         >>> os.getenv = old_getenv
         """
         if self._client is None:
             load_dotenv()
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise RuntimeError("Missing GROQ_API_KEY in environment or .env")
-            self._client = Groq(api_key=api_key)
+            if self.provider == "groq":
+                api_key = os.getenv("GROQ_API_KEY")
+                if not api_key:
+                    raise RuntimeError("Missing GROQ_API_KEY in environment or .env")
+                self._client = Groq(api_key=api_key)
+            else:
+                api_key = os.getenv("OPENROUTER_API_KEY")
+                if not api_key:
+                    raise RuntimeError("Missing OPENROUTER_API_KEY for non-groq providers")
+                self._client = OpenAI(
+                    base_url=OPENROUTER_BASE_URL,
+                    api_key=api_key,
+                )
         return self._client
 
     def run_tool(self, name: str, args: dict[str, Any]) -> str:
@@ -266,19 +290,24 @@ class Chat:
 
         if command == "ls":
             path = params[0] if params else "."
+            self._debug_tool("ls", {"path": path})
             result = run_ls(path)
         elif command == "cat":
             if len(params) != 1:
                 return "USAGE: /cat <path>"
+            self._debug_tool("cat", {"path": params[0]})
             result = run_cat(params[0])
         elif command == "grep":
             if len(params) != 2:
                 return "USAGE: /grep <regex> <path_or_glob>"
+            self._debug_tool("grep", {"pattern": params[0], "path": params[1]})
             result = run_grep(params[0], params[1])
         elif command == "calculate":
             if not params:
                 return "USAGE: /calculate <expression>"
-            result = run_calculate(" ".join(params))
+            expression = " ".join(params)
+            self._debug_tool("calculate", {"expression": expression})
+            result = run_calculate(expression)
         else:
             return f"ERROR: unknown command /{command}"
 
@@ -287,7 +316,11 @@ class Chat:
         return result
 
 
-def repl(client: Any | None = None) -> None:
+def repl(
+    client: Any | None = None,
+    provider: str = "groq",
+    debug: bool = False,
+) -> None:
     """Run terminal loop and route slash commands directly to tools.
 
     >>> def monkey_input(prompt, items=['/calculate 2+2']):
@@ -324,7 +357,7 @@ def repl(client: Any | None = None) -> None:
     """
     import readline  # noqa: F401
 
-    chat = Chat(client=client)
+    chat = Chat(client=client, provider=provider, debug=debug)
     try:
         while True:
             user_input = input("chat> ")
@@ -336,5 +369,49 @@ def repl(client: Any | None = None) -> None:
         print()
 
 
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for the chat CLI.
+
+    >>> ns = parse_args(["--debug", "--provider", "google", "hello"])
+    >>> (ns.debug, ns.provider, ns.message)
+    (True, 'google', 'hello')
+    """
+    parser = argparse.ArgumentParser(description="Chat with local documents using tool-calling.")
+    parser.add_argument("message", nargs="?", help="Optional one-shot message to send.")
+    parser.add_argument("--debug", action="store_true", help="Print tool calls as they happen.")
+    parser.add_argument(
+        "--provider",
+        choices=sorted(PROVIDER_MODELS.keys()),
+        default="groq",
+        help="LLM provider backend (default: groq).",
+    )
+    return parser.parse_args(argv)
+
+
+def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
+    """Run CLI entrypoint for either one-shot mode or interactive REPL mode.
+
+    >>> run_cli(["/calculate 4*5"], client=object())
+    20
+    0
+    >>> run_cli(["--debug", "/calculate 2+3"], client=object())
+    [tool] /calculate 2+3
+    5
+    0
+    """
+    args = parse_args(argv)
+    chat = Chat(client=client, provider=args.provider, debug=args.debug)
+
+    if args.message is not None:
+        if args.message.startswith("/"):
+            print(chat.handle_slash_command(args.message))
+        else:
+            print(chat.send_message(args.message))
+        return 0
+
+    repl(client=client, provider=args.provider, debug=args.debug)
+    return 0
+
+
 if __name__ == "__main__":  # pragma: no cover
-    repl()
+    raise SystemExit(run_cli())

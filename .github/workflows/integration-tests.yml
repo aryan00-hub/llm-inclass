@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,11 +19,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .
-      - name: Slash command integration test
+      - name: One-shot CLI arg works
         run: |
-          chat <<'EOF2'
-          /ls .github
-          /cat README.md
-          /grep "chat" "*.py"
-          /calculate 8*9
-          EOF2
+          chat "/calculate 9*9" | tee /tmp/oneshot.txt
+          grep -q '^81$' /tmp/oneshot.txt
+      - name: Debug flag prints tool calls
+        run: |
+          chat --debug "/ls .github" | tee /tmp/debug.txt
+          grep -q '^\[tool\] /ls .github$' /tmp/debug.txt
