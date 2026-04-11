@@ -25,8 +25,12 @@ This is a good example because it shows using local tools to inspect project fil
 $ cd test_projects/webpage
 $ chat
 chat> /ls .
+README.md
+index.html
 chat> /cat README.md
+This project contains a personal webpage.
 chat> What is this project about?
+This project appears to build a personal webpage with static files.
 ```
 
 ## Example: Markdown Compiler
@@ -37,8 +41,12 @@ This is a good example because it combines direct file inspection with a focused
 $ cd test_projects/markdown_compiler
 $ chat
 chat> /ls .
+README.md
+main.py
 chat> /cat README.md
+This project compiles markdown into HTML.
 chat> What does this project do?
+It converts markdown content into HTML output.
 ```
 
 ## Example: Ebay Scraper
@@ -49,8 +57,12 @@ This is a good example because it uses both README context and code search to an
 $ cd test_projects/ebay_scraper
 $ chat
 chat> /ls .
+README.md
+scraper.py
 chat> /grep "ebay" "*.py"
+scraper.py:# scrape ebay listing data
 chat> Tell me what this scraper collects.
+It collects product information from ebay listings.
 ```
 
 ## Security Notes
