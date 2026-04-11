@@ -46,6 +46,35 @@ def _is_tool_validation_error(exc: Exception) -> bool:
     return "tool call validation failed" in str(exc).lower()
 
 
+def _json_safe(obj: Any) -> Any:
+    """Convert SDK objects into JSON-safe nested primitives.
+
+    >>> _json_safe({"a": 1, "b": [2, 3]})
+    {'a': 1, 'b': [2, 3]}
+    >>> class X:
+    ...     def __init__(self):
+    ...         self.name = "n"
+    >>> _json_safe(X())
+    {'name': 'n'}
+    """
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, list):
+        return [_json_safe(x) for x in obj]
+    if isinstance(obj, tuple):
+        return [_json_safe(x) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if hasattr(obj, "model_dump"):
+        try:
+            return _json_safe(obj.model_dump())
+        except Exception:
+            pass
+    if hasattr(obj, "__dict__"):
+        return {str(k): _json_safe(v) for k, v in vars(obj).items()}
+    return str(obj)
+
+
 class Chat:
     """A small doc-chat agent that can read local files through safe tools.
 
@@ -239,7 +268,8 @@ class Chat:
             debug=self.debug,
             client=self.client,
         )
-        transcript = json.dumps(self.messages, ensure_ascii=False)
+        safe_messages = _json_safe(self.messages)
+        transcript = json.dumps(safe_messages, ensure_ascii=False)
         response = subagent.client.chat.completions.create(
             model=subagent.model,
             messages=[
