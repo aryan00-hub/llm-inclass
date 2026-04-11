@@ -14,40 +14,40 @@ DocChat is a terminal AI agent that chats about your project files using safe lo
 
 ```bash
 pip install cmc-csci040-annaryan
-chat
+python3 chat.py
 ```
 
 ## Example: Webpage Project
 
-This is a good example because it demonstrates using `grep` and `cat` to verify implementation details against a real project.
+This is a good example because it shows using local tools to inspect project files before asking a summary question.
 
 ```bash
 $ cd test_projects/webpage
-$ chat
-chat> does this project include any javascript files?
-I used /ls and /grep and found no JavaScript files in this project.
+$ python3 ../../chat.py "/ls ."
+$ python3 ../../chat.py "/cat README.md"
+$ python3 ../../chat.py "What is this project about?"
 ```
 
 ## Example: Markdown Compiler
 
-This is a good example because it asks a concrete architecture question that can be answered from source files.
+This is a good example because it combines direct file inspection with a focused question about project purpose.
 
 ```bash
 $ cd test_projects/markdown_compiler
-$ chat
-chat> does this project use regular expressions?
-I searched Python files and found usage of the `re` library in the parser module.
+$ python3 ../../chat.py "/ls ."
+$ python3 ../../chat.py "/cat README.md"
+$ python3 ../../chat.py "What does this project do?"
 ```
 
 ## Example: Ebay Scraper
 
-This is a good example because it combines README summarization with source-level evidence from tool outputs.
+This is a good example because it uses both README context and code search to answer a practical question.
 
 ```bash
 $ cd test_projects/ebay_scraper
-$ chat
-chat> tell me what this project is for
-From the README and scraper files, this project extracts product information from ebay listings.
+$ python3 ../../chat.py "/ls ."
+$ python3 ../../chat.py "/grep \"ebay\" \"*.py\""
+$ python3 ../../chat.py "Tell me what this scraper collects."
 ```
 
 ## Security Notes
