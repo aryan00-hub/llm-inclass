@@ -17,6 +17,7 @@ from openai import OpenAI
 
 from tools.calculate import TOOL_SPEC as CALCULATE_SPEC
 from tools.calculate import run_calculate
+from tools.compact_tool import TOOL_SPEC as COMPACT_SPEC
 from tools.cat_tool import TOOL_SPEC as CAT_SPEC
 from tools.cat_tool import run_cat
 from tools.grep_tool import TOOL_SPEC as GREP_SPEC
@@ -24,7 +25,7 @@ from tools.grep_tool import run_grep
 from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
 
-TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC]
+TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC, COMPACT_SPEC]
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
     "groq": "llama-3.1-8b-instant",
@@ -151,6 +152,17 @@ class Chat:
         'ERROR: file not found'
         >>> isinstance(c.run_tool("grep", {"pattern": "x", "path": "*.py"}), str)
         True
+        >>> from types import SimpleNamespace
+        >>> class SummaryOnly:
+        ...     def create(self, **kwargs):
+        ...         m = SimpleNamespace(content='summary line', tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=m)])
+        >>> c2 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=SummaryOnly())))
+        >>> _ = c2.send_message('hello world')
+        >>> c2.run_tool("compact", {})
+        'summary line'
+        >>> len(c2.messages)
+        1
         >>> c.run_tool("nope", {})
         'ERROR: unknown tool: nope'
         """
@@ -162,6 +174,8 @@ class Chat:
             return run_cat(str(args.get("path", "")))
         if name == "grep":
             return run_grep(str(args.get("pattern", "")), str(args.get("path", "")))
+        if name == "compact":
+            return self.compact_messages()
         return f"ERROR: unknown tool: {name}"
 
     def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
@@ -186,8 +200,74 @@ class Chat:
             print(f"[tool] /cat {args.get('path', '')}".rstrip())
         elif name == "grep":
             print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
+        elif name == "compact":
+            print("[tool] /compact")
         else:
             print(f"[tool] /{name} {args}")
+
+    def compact_messages(self) -> str:
+        """Summarize conversation into 1-5 lines via a subagent and replace memory.
+
+        >>> from types import SimpleNamespace
+        >>> class SummaryOnly:
+        ...     def create(self, **kwargs):
+        ...         m = SimpleNamespace(content='short summary', tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=m)])
+        >>> c = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=SummaryOnly())))
+        >>> _ = c.send_message('hello')
+        >>> c.compact_messages()
+        'short summary'
+        >>> len(c.messages)
+        1
+        >>> c.messages[0]['content'].startswith('Conversation summary')
+        True
+        """
+        if len(self.messages) <= 1:
+            summary = "No prior context to summarize."
+            self.messages = [
+                {
+                    "role": "system",
+                    "content": f"Conversation summary (compacted):\n{summary}",
+                }
+            ]
+            return summary
+
+        # Subagent shares provider/model/client but uses an isolated prompt/messages.
+        subagent = Chat(
+            model=self.model,
+            provider=self.provider,
+            debug=self.debug,
+            client=self.client,
+        )
+        transcript = json.dumps(self.messages, ensure_ascii=False)
+        response = subagent.client.chat.completions.create(
+            model=subagent.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarize the chat history in 1-5 short lines. "
+                        "Keep concrete facts and prior tool findings."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Summarize this chat history:\\n{transcript}",
+                },
+            ],
+            temperature=0,
+            max_tokens=180,
+        )
+        summary = (response.choices[0].message.content or "").strip()
+        if not summary:
+            summary = "No prior context to summarize."
+        self.messages = [
+            {
+                "role": "system",
+                "content": f"Conversation summary (compacted):\\n{summary}",
+            }
+        ]
+        return summary
 
     def send_message(self, user_input: str, max_rounds: int = 6) -> str:
         """Send user text to the model and resolve any automatic tool-calling chain.
@@ -330,6 +410,9 @@ class Chat:
         'USAGE: /grep <regex> <path_or_glob>'
         >>> c.handle_slash_command('/calculate')
         'USAGE: /calculate <expression>'
+        >>> c2 = Chat(client=object())
+        >>> c2.handle_slash_command('/compact')
+        'No prior context to summarize.'
         >>> c.handle_slash_command('/bogus')
         'ERROR: unknown command /bogus'
         """
@@ -361,6 +444,11 @@ class Chat:
             expression = " ".join(params)
             self._debug_tool("calculate", {"expression": expression})
             result = run_calculate(expression)
+        elif command == "compact":
+            if params:
+                return "USAGE: /compact"
+            self._debug_tool("compact", {})
+            result = self.compact_messages()
         else:
             return f"ERROR: unknown command /{command}"
 

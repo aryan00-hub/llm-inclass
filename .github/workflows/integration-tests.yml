@@ -27,3 +27,7 @@ jobs:
         run: |
           chat --debug "/ls .github" | tee /tmp/debug.txt
           grep -q '^\[tool\] /ls .github$' /tmp/debug.txt
+      - name: Compact command works
+        run: |
+          chat "/compact" | tee /tmp/compact.txt
+          grep -q '^No prior context to summarize.$' /tmp/compact.txt
