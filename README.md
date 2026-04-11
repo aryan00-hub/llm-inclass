@@ -14,7 +14,7 @@ DocChat is a terminal AI agent that chats about your project files using safe lo
 
 ```bash
 pip install cmc-csci040-annaryan
-python3 chat.py
+chat
 ```
 
 ## Example: Webpage Project
@@ -23,9 +23,10 @@ This is a good example because it shows using local tools to inspect project fil
 
 ```bash
 $ cd test_projects/webpage
-$ python3 ../../chat.py "/ls ."
-$ python3 ../../chat.py "/cat README.md"
-$ python3 ../../chat.py "What is this project about?"
+$ chat
+chat> /ls .
+chat> /cat README.md
+chat> What is this project about?
 ```
 
 ## Example: Markdown Compiler
@@ -34,9 +35,10 @@ This is a good example because it combines direct file inspection with a focused
 
 ```bash
 $ cd test_projects/markdown_compiler
-$ python3 ../../chat.py "/ls ."
-$ python3 ../../chat.py "/cat README.md"
-$ python3 ../../chat.py "What does this project do?"
+$ chat
+chat> /ls .
+chat> /cat README.md
+chat> What does this project do?
 ```
 
 ## Example: Ebay Scraper
@@ -45,9 +47,10 @@ This is a good example because it uses both README context and code search to an
 
 ```bash
 $ cd test_projects/ebay_scraper
-$ python3 ../../chat.py "/ls ."
-$ python3 ../../chat.py "/grep \"ebay\" \"*.py\""
-$ python3 ../../chat.py "Tell me what this scraper collects."
+$ chat
+chat> /ls .
+chat> /grep "ebay" "*.py"
+chat> Tell me what this scraper collects.
 ```
 
 ## Security Notes
