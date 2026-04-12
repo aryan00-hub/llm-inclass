@@ -8,7 +8,7 @@
 
 DocChat is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`).
 
-[Watch demo video](docs/demo.mov)
+![DocChat demo](docs/demo.gif)
 
 ## Usage
 
