@@ -1,4 +1,4 @@
-# DocChat CLI
+# DocChat: Conversational Interface to Chat with Documents
 
 [![Doctests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 [![Integration Tests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml)
@@ -6,9 +6,9 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-DocChat is a terminal AI agent that chats about your project files using safe local tools (`ls`, `cat`, `grep`, `calculate`). It supports both automatic tool calling and manual slash commands for fast, deterministic inspection.
+DocChat is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`).
 
-![DocChat demo](docs/demo.gif)
+[Watch demo video](docs/demo.mov)
 
 ## Usage
 
