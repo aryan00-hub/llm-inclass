@@ -47,6 +47,12 @@ PROVIDER_MODELS = {
     "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
+VISION_PROVIDER_MODELS = {
+    "groq": "llama-3.2-11b-vision-preview",
+    "openai": "openai/gpt-4.1",
+    "anthropic": "anthropic/claude-3.7-sonnet",
+    "google": "google/gemini-2.5-pro",
+}
 SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact", "load_image", "stt", "voice"]
 
 
@@ -502,6 +508,8 @@ class Chat:
         'Loaded image: a.png'
         >>> c.messages[-1]["role"]
         'user'
+        >>> c.model == VISION_PROVIDER_MODELS["groq"]
+        True
         >>> c.load_image_into_messages("../bad.png")
         'ERROR: unsafe path'
         """
@@ -519,6 +527,9 @@ class Chat:
                 ],
             }
         )
+        # Switch to a vision-capable model after an image is loaded.
+        if self.provider in VISION_PROVIDER_MODELS:
+            self.model = VISION_PROVIDER_MODELS[self.provider]
         return f"Loaded image: {path}"
 
     def _groq_audio_client(self) -> Any:
