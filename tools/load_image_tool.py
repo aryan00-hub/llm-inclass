@@ -77,6 +77,17 @@ def load_image_as_data_url(path: str) -> str:
     ...         print(str(e))
     ...     os.chdir(old)
     not an image file
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     p = Path(d) / "x.gif"
+    ...     _ = p.write_bytes(b"GIF89a")
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     try:
+    ...         load_image_as_data_url("x.gif")
+    ...     except ValueError as e:
+    ...         print(str(e))
+    ...     os.chdir(old)
+    GIF images are not supported; use PNG or JPG
     """
     if not is_path_safe(path):
         raise ValueError("unsafe path")
@@ -90,6 +101,8 @@ def load_image_as_data_url(path: str) -> str:
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if not mime_type or not mime_type.startswith("image/"):
         raise ValueError("not an image file")
+    if file_path.suffix.lower() == ".gif":
+        raise ValueError("GIF images are not supported; use PNG or JPG")
 
     raw = file_path.read_bytes()
     encoded = base64.b64encode(raw).decode("ascii")
