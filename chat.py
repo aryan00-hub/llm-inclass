@@ -48,7 +48,7 @@ PROVIDER_MODELS = {
     "google": "google/gemini-2.5-pro",
 }
 VISION_PROVIDER_MODELS = {
-    "groq": "llama-3.2-11b-vision-preview",
+    "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
     "openai": "openai/gpt-4.1",
     "anthropic": "anthropic/claude-3.7-sonnet",
     "google": "google/gemini-2.5-pro",
