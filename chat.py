@@ -6,6 +6,7 @@ This file defines the Chat class, tool execution flow, and interactive loop used
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import shlex
@@ -30,9 +31,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
     "groq": "llama-3.1-8b-instant",
     "openai": "openai/gpt-5",
-    "anthropic": "anthropic/claude-opus-4.1",
+    "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
+SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact"]
 
 
 def _is_tool_validation_error(exc: Exception) -> bool:
@@ -56,6 +58,22 @@ def _json_safe(obj: Any) -> Any:
     ...         self.name = "n"
     >>> _json_safe(X())
     {'name': 'n'}
+    >>> _json_safe((1, 2, 3))
+    [1, 2, 3]
+    >>> class D:
+    ...     def model_dump(self):
+    ...         return {"k": 9}
+    >>> _json_safe(D())
+    {'k': 9}
+    >>> class BadD:
+    ...     def __init__(self):
+    ...         self.ok = True
+    ...     def model_dump(self):
+    ...         raise ValueError("bad")
+    >>> _json_safe(BadD())
+    {'ok': True}
+    >>> isinstance(_json_safe(object()), str)
+    True
     """
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -73,6 +91,101 @@ def _json_safe(obj: Any) -> Any:
     if hasattr(obj, "__dict__"):
         return {str(k): _json_safe(v) for k, v in vars(obj).items()}
     return str(obj)
+
+
+def _path_completion_candidates(prefix: str) -> list[str]:
+    """Return sorted path completions for a typed prefix.
+
+    >>> vals = _path_completion_candidates("tools/")
+    >>> any(v.startswith("tools/") for v in vals)
+    True
+    """
+    pattern = f"{prefix}*" if prefix else "*"
+    matches = sorted(glob.glob(pattern))
+    out: list[str] = []
+    for match in matches:
+        if os.path.isdir(match):
+            out.append(match.rstrip("/") + "/")
+        else:
+            out.append(match)
+    return out
+
+
+def _slash_completion_options(line: str, text: str) -> list[str]:
+    """Return completion options for slash commands and file arguments.
+
+    >>> _slash_completion_options("/", "/")
+    ['/calculate', '/cat', '/compact', '/grep', '/ls']
+    >>> _slash_completion_options("/l", "/l")
+    ['/ls']
+    >>> opts = _slash_completion_options("/ls .g", ".g")
+    >>> ".git/" in opts or ".git" in opts
+    True
+    >>> _slash_completion_options("hello", "h")
+    []
+    >>> _slash_completion_options("/bogus x", "x")
+    []
+    >>> opts2 = _slash_completion_options("/ls ", "")
+    >>> len(opts2) >= 1
+    True
+    """
+    if not line.startswith("/"):
+        return []
+
+    body = line[1:]
+    parts = body.split()
+    if not parts:
+        return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS)]
+
+    # Completing command name.
+    if len(parts) == 1 and not line.endswith(" "):
+        prefix = parts[0]
+        return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
+
+    cmd = parts[0]
+    if cmd not in {"ls", "cat", "grep"}:
+        return []
+
+    if line.endswith(" "):
+        current = ""
+        arg_index = len(parts) - 1
+    else:
+        current = text
+        arg_index = len(parts) - 2
+
+    if cmd in {"ls", "cat"} and arg_index == 0:
+        return _path_completion_candidates(current)
+    if cmd == "grep" and arg_index == 1:
+        return _path_completion_candidates(current)
+    return []
+
+
+def _build_readline_completer():
+    """Create a readline completer function for slash commands.
+
+    >>> comp = _build_readline_completer()
+    >>> callable(comp)
+    True
+    >>> import readline
+    >>> old = readline.get_line_buffer
+    >>> readline.get_line_buffer = lambda: "/l"
+    >>> comp("/l", 0)
+    '/ls'
+    >>> comp("/l", 1) is None
+    True
+    >>> readline.get_line_buffer = old
+    """
+
+    def _completer(text: str, state: int) -> str | None:
+        import readline
+
+        line = readline.get_line_buffer()
+        options = _slash_completion_options(line, text)
+        if state < len(options):
+            return options[state]
+        return None
+
+    return _completer
 
 
 class Chat:
@@ -150,6 +263,14 @@ class Chat:
         ... except RuntimeError as e:
         ...     print("Missing OPENROUTER_API_KEY" in str(e))
         True
+        >>> os.getenv = lambda key, default=None: "gsk_demo" if key == "GROQ_API_KEY" else None
+        >>> c3 = Chat(client=None, provider="groq")
+        >>> c3.client.__class__.__name__
+        'Groq'
+        >>> os.getenv = lambda key, default=None: "or_demo" if key == "OPENROUTER_API_KEY" else None
+        >>> c4 = Chat(client=None, provider="openai")
+        >>> c4.client.__class__.__name__
+        'OpenAI'
         >>> os.getenv = old_getenv
         """
         if self._client is None:
@@ -345,6 +466,27 @@ class Chat:
         >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RepeatThenStop())))
         >>> c4.send_message("what folder is in .github?", max_rounds=3).startswith("workflows")
         True
+        >>> class ValidationFallback:
+        ...     def __init__(self):
+        ...         self.calls = 0
+        ...     def create(self, **kwargs):
+        ...         self.calls += 1
+        ...         if self.calls == 1:
+        ...             raise RuntimeError("tool call validation failed")
+        ...         msg = SimpleNamespace(content="fallback ok", tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c5 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=ValidationFallback())))
+        >>> c5.send_message("x")
+        'fallback ok'
+        >>> class LoopNoResult:
+        ...     def create(self, **kwargs):
+        ...         func = SimpleNamespace(name='grep', arguments='{"pattern":"z","path":"__no_match__*.txt"}')
+        ...         tc = SimpleNamespace(id='n1', function=func)
+        ...         msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c6 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LoopNoResult())))
+        >>> c6.send_message("loop", max_rounds=1)
+        'ERROR: tool loop exceeded'
         """
         self.messages.append({"role": "user", "content": user_input})
         last_signature = None
@@ -443,6 +585,19 @@ class Chat:
         >>> c2 = Chat(client=object())
         >>> c2.handle_slash_command('/compact')
         'No prior context to summarize.'
+        >>> c2.handle_slash_command('/compact now')
+        'USAGE: /compact'
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> with tempfile.TemporaryDirectory() as d:
+        ...     p = Path(d) / "note.txt"
+        ...     _ = p.write_text("hi", encoding="utf-8")
+        ...     old = os.getcwd()
+        ...     os.chdir(d)
+        ...     out = c2.handle_slash_command('/cat note.txt')
+        ...     os.chdir(old)
+        >>> out
+        'hi'
         >>> c.handle_slash_command('/bogus')
         'ERROR: unknown command /bogus'
         """
@@ -526,9 +681,12 @@ def repl(
     >>> builtins.input = old_input
     >>> Chat.send_message = old_send
     """
-    import readline  # noqa: F401
+    import readline
 
     chat = Chat(client=client, provider=provider, debug=debug)
+    readline.parse_and_bind("tab: complete")
+    readline.set_completer_delims(" \t\n")
+    readline.set_completer(_build_readline_completer())
     try:
         while True:
             user_input = input("chat> ")
@@ -568,6 +726,15 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     >>> run_cli(["--debug", "/calculate 2+3"], client=object())
     [tool] /calculate 2+3
     5
+    0
+    >>> old_send = Chat.send_message
+    >>> Chat.send_message = lambda self, msg: "OK:" + msg
+    >>> run_cli(["hello"], client=object())
+    OK:hello
+    0
+    >>> Chat.send_message = old_send
+    >>> run_cli([], client=object())
+    chat>
     0
     """
     args = parse_args(argv)
