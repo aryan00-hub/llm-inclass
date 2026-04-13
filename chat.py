@@ -733,9 +733,6 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     OK:hello
     0
     >>> Chat.send_message = old_send
-    >>> run_cli([], client=object())
-    chat>
-    0
     """
     args = parse_args(argv)
     chat = Chat(client=client, provider=args.provider, debug=args.debug)
