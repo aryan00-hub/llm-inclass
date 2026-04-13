@@ -6,7 +6,7 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-DocChat is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`).
+DocChat is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`, `/load_image`, `/stt`, `/voice`).
 
 ![DocChat demo](docs/demo.gif)
 
@@ -15,6 +15,25 @@ DocChat is a Python-based conversational assistant for inspecting and reasoning 
 ```bash
 pip install cmc-csci040-annaryan
 chat
+```
+
+## Extra Credit Features
+
+These additional features are implemented:
+
+```bash
+# Load an image into context, then ask a visual question
+chat> /load_image docs/example.png
+chat> what do you see in this image?
+
+# Speak the assistant answer out loud with Groq TTS
+$ chat --speak "summarize this project"
+
+# Speech-to-text from an existing audio file
+chat> /stt recording.wav
+
+# Record with keypress start/stop, transcribe, and ask automatically
+chat> /voice
 ```
 
 ## Example: Webpage Project
