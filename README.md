@@ -88,3 +88,4 @@ It collects product information from ebay listings.
 - Debug tool tracing with `chat --debug`.
 - Provider selection with `chat --provider <groq|openai|anthropic|google>`.
 - Slash-command tab completion for commands and file paths.
+- Image context loading with `/load_image <image.png|image.jpg>`.
