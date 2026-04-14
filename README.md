@@ -8,21 +8,7 @@
 
 PyPI: https://pypi.org/project/cmc-csci040-annaryan/
 
-Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal.
-
-## Features
-
-- Automatic tool-calling with an LLM for file-aware answers.
-- Manual slash commands: `/ls`, `/cat`, `/grep`, `/calculate`.
-- Path safety guards against absolute paths and `..` traversal.
-- Conversation compaction with `/compact` to reduce context size.
-- One-shot CLI prompts: `chat "your question"`.
-- Debug tool tracing with `chat --debug`.
-- Provider selection with `chat --provider <groq|openai|anthropic|google>`.
-- Slash-command tab completion for commands and file paths.
-- Image context loading with `/load_image <image.png|image.jpg>`.
-- Speech-to-text with `/stt <audiofile>` and `/voice`.
-- Text-to-speech output with `chat --speak`.
+Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It supports both automatic LLM tool-calling and manual slash commands so you can get fast, deterministic file inspection when needed. The project is packaged for `pip` installation, includes doctests and CI checks, and is designed to safely answer questions about code and text files in the current working directory.
 
 ![DocChat demo](docs/demo.gif)
 
@@ -31,25 +17,6 @@ Project Chat Agent is a Python-based conversational assistant for inspecting and
 ```bash
 pip install cmc-csci040-annaryan
 chat
-```
-
-## Extra Credit Features
-
-These additional features are implemented:
-
-```bash
-# Load an image into context, then ask a visual question
-chat> /load_image docs/example.png
-chat> what do you see in this image?
-
-# Speak the assistant answer out loud with Groq TTS
-$ chat --speak "summarize this project"
-
-# Speech-to-text from an existing audio file
-chat> /stt recording.wav
-
-# Record with keypress start/stop, transcribe, and ask automatically
-chat> /voice
 ```
 
 ## Example: Webpage Project
@@ -99,3 +66,17 @@ scraper.py:# scrape ebay listing data
 chat> Tell me what this scraper collects.
 It collects product information from ebay listings.
 ```
+
+## Features
+
+- Automatic tool-calling with an LLM for file-aware answers.
+- Manual slash commands: `/ls`, `/cat`, `/grep`, `/calculate`.
+- Path safety guards against absolute paths and `..` traversal.
+- Conversation compaction with `/compact` to reduce context size.
+- One-shot CLI prompts: `chat "your question"`.
+- Debug tool tracing with `chat --debug`.
+- Provider selection with `chat --provider <groq|openai|anthropic|google>`.
+- Slash-command tab completion for commands and file paths.
+- Image context loading with `/load_image <image.png|image.jpg>`.
+- Speech-to-text with `/stt <audiofile>` and `/voice`.
+- Text-to-speech output with `chat --speak`.
