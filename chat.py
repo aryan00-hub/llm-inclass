@@ -23,10 +23,12 @@ from tools.cat_tool import TOOL_SPEC as CAT_SPEC
 from tools.cat_tool import run_cat
 from tools.grep_tool import TOOL_SPEC as GREP_SPEC
 from tools.grep_tool import run_grep
+from tools.load_image_tool import TOOL_SPEC as LOAD_IMAGE_SPEC
+from tools.load_image_tool import load_image_as_data_url
 from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
 
-TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC, COMPACT_SPEC]
+TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC, COMPACT_SPEC, LOAD_IMAGE_SPEC]
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
     "groq": "llama-3.1-8b-instant",
@@ -34,7 +36,13 @@ PROVIDER_MODELS = {
     "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
-SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact"]
+VISION_PROVIDER_MODELS = {
+    "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "openai": "openai/gpt-5",
+    "anthropic": "anthropic/claude-opus-4.6",
+    "google": "google/gemini-2.5-pro",
+}
+SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact", "load_image"]
 
 
 def _is_tool_validation_error(exc: Exception) -> bool:
@@ -115,9 +123,9 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
     >>> _slash_completion_options("/", "/")
-    ['/calculate', '/cat', '/compact', '/grep', '/ls']
+    ['/calculate', '/cat', '/compact', '/grep', '/load_image', '/ls']
     >>> _slash_completion_options("/l", "/l")
-    ['/ls']
+    ['/load_image', '/ls']
     >>> opts = _slash_completion_options("/ls .g", ".g")
     >>> ".git/" in opts or ".git" in opts
     True
@@ -143,7 +151,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
 
     cmd = parts[0]
-    if cmd not in {"ls", "cat", "grep"}:
+    if cmd not in {"ls", "cat", "grep", "load_image"}:
         return []
 
     if line.endswith(" "):
@@ -153,7 +161,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         current = text
         arg_index = len(parts) - 2
 
-    if cmd in {"ls", "cat"} and arg_index == 0:
+    if cmd in {"ls", "cat", "load_image"} and arg_index == 0:
         return _path_completion_candidates(current)
     if cmd == "grep" and arg_index == 1:
         return _path_completion_candidates(current)
@@ -170,8 +178,10 @@ def _build_readline_completer():
     >>> old = readline.get_line_buffer
     >>> readline.get_line_buffer = lambda: "/l"
     >>> comp("/l", 0)
+    '/load_image'
+    >>> comp("/l", 1)
     '/ls'
-    >>> comp("/l", 1) is None
+    >>> comp("/l", 2) is None
     True
     >>> readline.get_line_buffer = old
     """
@@ -313,6 +323,8 @@ class Chat:
         'summary line'
         >>> len(c2.messages)
         1
+        >>> c.run_tool("load_image", {"path": "../x.png"})
+        'ERROR: unsafe path'
         >>> c.run_tool("nope", {})
         'ERROR: unknown tool: nope'
         """
@@ -326,6 +338,8 @@ class Chat:
             return run_grep(str(args.get("pattern", "")), str(args.get("path", "")))
         if name == "compact":
             return self.compact_messages()
+        if name == "load_image":
+            return self.load_image_into_messages(str(args.get("path", "")))
         return f"ERROR: unknown tool: {name}"
 
     def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
@@ -419,6 +433,44 @@ class Chat:
             }
         ]
         return summary
+
+    def load_image_into_messages(self, path: str) -> str:
+        """Load a local image and append it to chat context as multimodal content.
+
+        >>> import tempfile, os
+        >>> from pathlib import Path
+        >>> c = Chat(client=object())
+        >>> with tempfile.TemporaryDirectory() as d:
+        ...     p = Path(d) / "a.png"
+        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
+        ...     old = os.getcwd()
+        ...     os.chdir(d)
+        ...     out = c.load_image_into_messages("a.png")
+        ...     os.chdir(old)
+        >>> out
+        'Loaded image: a.png'
+        >>> c.messages[-1]["role"]
+        'user'
+        >>> c.load_image_into_messages("../bad.png")
+        'ERROR: unsafe path'
+        """
+        try:
+            data_url = load_image_as_data_url(path)
+        except ValueError as exc:
+            return f"ERROR: {exc}"
+
+        self.messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"Image loaded from {path}"},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        )
+        if self.provider in VISION_PROVIDER_MODELS:
+            self.model = VISION_PROVIDER_MODELS[self.provider]
+        return f"Loaded image: {path}"
 
     def send_message(self, user_input: str, max_rounds: int = 6) -> str:
         """Send user text to the model and resolve any automatic tool-calling chain.
@@ -587,6 +639,8 @@ class Chat:
         'No prior context to summarize.'
         >>> c2.handle_slash_command('/compact now')
         'USAGE: /compact'
+        >>> c2.handle_slash_command('/load_image')
+        'USAGE: /load_image <path>'
         >>> import tempfile
         >>> from pathlib import Path
         >>> with tempfile.TemporaryDirectory() as d:
@@ -598,6 +652,15 @@ class Chat:
         ...     os.chdir(old)
         >>> out
         'hi'
+        >>> with tempfile.TemporaryDirectory() as d:
+        ...     p = Path(d) / "img.png"
+        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
+        ...     old = os.getcwd()
+        ...     os.chdir(d)
+        ...     out2 = c2.handle_slash_command('/load_image img.png')
+        ...     os.chdir(old)
+        >>> out2
+        'Loaded image: img.png'
         >>> c.handle_slash_command('/bogus')
         'ERROR: unknown command /bogus'
         """
@@ -634,6 +697,10 @@ class Chat:
                 return "USAGE: /compact"
             self._debug_tool("compact", {})
             result = self.compact_messages()
+        elif command == "load_image":
+            if len(params) != 1:
+                return "USAGE: /load_image <path>"
+            result = self.load_image_into_messages(params[0])
         else:
             return f"ERROR: unknown command /{command}"
 
