@@ -9,10 +9,7 @@ import argparse
 import glob
 import json
 import os
-import platform
 import shlex
-import subprocess
-import tempfile
 from typing import Any
 
 from dotenv import load_dotenv
@@ -26,20 +23,10 @@ from tools.cat_tool import TOOL_SPEC as CAT_SPEC
 from tools.cat_tool import run_cat
 from tools.grep_tool import TOOL_SPEC as GREP_SPEC
 from tools.grep_tool import run_grep
-from tools.is_path_safe import is_path_safe
 from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
-from tools.load_image_tool import TOOL_SPEC as LOAD_IMAGE_SPEC
-from tools.load_image_tool import load_image_as_data_url
 
-TOOL_SPECS = [
-    CALCULATE_SPEC,
-    LS_SPEC,
-    CAT_SPEC,
-    GREP_SPEC,
-    COMPACT_SPEC,
-    LOAD_IMAGE_SPEC,
-]
+TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC, COMPACT_SPEC]
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
     "groq": "llama-3.1-8b-instant",
@@ -47,13 +34,7 @@ PROVIDER_MODELS = {
     "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
-VISION_PROVIDER_MODELS = {
-    "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
-    "openai": "openai/gpt-4.1",
-    "anthropic": "anthropic/claude-3.7-sonnet",
-    "google": "google/gemini-2.5-pro",
-}
-SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact", "load_image", "stt", "voice"]
+SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact"]
 
 
 def _is_tool_validation_error(exc: Exception) -> bool:
@@ -134,9 +115,9 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
     >>> _slash_completion_options("/", "/")
-    ['/calculate', '/cat', '/compact', '/grep', '/load_image', '/ls', '/stt', '/voice']
+    ['/calculate', '/cat', '/compact', '/grep', '/ls']
     >>> _slash_completion_options("/l", "/l")
-    ['/load_image', '/ls']
+    ['/ls']
     >>> opts = _slash_completion_options("/ls .g", ".g")
     >>> ".git/" in opts or ".git" in opts
     True
@@ -146,8 +127,6 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     []
     >>> opts2 = _slash_completion_options("/ls ", "")
     >>> len(opts2) >= 1
-    True
-    >>> len(_slash_completion_options("/grep dog ", "")) >= 1
     True
     """
     if not line.startswith("/"):
@@ -164,7 +143,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
 
     cmd = parts[0]
-    if cmd not in {"ls", "cat", "grep", "load_image", "stt"}:
+    if cmd not in {"ls", "cat", "grep"}:
         return []
 
     if line.endswith(" "):
@@ -174,7 +153,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         current = text
         arg_index = len(parts) - 2
 
-    if cmd in {"ls", "cat", "load_image", "stt"} and arg_index == 0:
+    if cmd in {"ls", "cat"} and arg_index == 0:
         return _path_completion_candidates(current)
     if cmd == "grep" and arg_index == 1:
         return _path_completion_candidates(current)
@@ -191,10 +170,8 @@ def _build_readline_completer():
     >>> old = readline.get_line_buffer
     >>> readline.get_line_buffer = lambda: "/l"
     >>> comp("/l", 0)
-    '/load_image'
-    >>> comp("/l", 1)
     '/ls'
-    >>> comp("/l", 2) is None
+    >>> comp("/l", 1) is None
     True
     >>> readline.get_line_buffer = old
     """
@@ -209,28 +186,6 @@ def _build_readline_completer():
         return None
 
     return _completer
-
-
-def _audio_player_command(path: str) -> list[str]:
-    """Return a platform-specific command for playing WAV audio.
-
-    >>> _audio_player_command("x.wav")[0] in {"afplay", "aplay", "powershell"}
-    True
-    >>> old = platform.system
-    >>> platform.system = lambda: "Linux"
-    >>> _audio_player_command("x.wav")
-    ['aplay', 'x.wav']
-    >>> platform.system = lambda: "Windows"
-    >>> _audio_player_command("x.wav")[0]
-    'powershell'
-    >>> platform.system = old
-    """
-    system = platform.system().lower()
-    if system == "darwin":
-        return ["afplay", path]
-    if system == "linux":
-        return ["aplay", path]
-    return ["powershell", "-c", f"(New-Object Media.SoundPlayer '{path}').PlaySync();"]
 
 
 class Chat:
@@ -268,7 +223,6 @@ class Chat:
         client: Any | None = None,
         debug: bool = False,
         provider: str = "groq",
-        speak: bool = False,
     ):
         """Initialize chat state and optionally inject a client for tests.
 
@@ -282,7 +236,6 @@ class Chat:
         self.model = model or PROVIDER_MODELS[provider]
         self._client = client
         self.debug = debug
-        self.speak = speak
         self.messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -349,8 +302,6 @@ class Chat:
         'ERROR: file not found'
         >>> isinstance(c.run_tool("grep", {"pattern": "x", "path": "*.py"}), str)
         True
-        >>> c.run_tool("load_image", {"path": "../x.png"})
-        'ERROR: unsafe path'
         >>> from types import SimpleNamespace
         >>> class SummaryOnly:
         ...     def create(self, **kwargs):
@@ -375,8 +326,6 @@ class Chat:
             return run_grep(str(args.get("pattern", "")), str(args.get("path", "")))
         if name == "compact":
             return self.compact_messages()
-        if name == "load_image":
-            return self.load_image_into_messages(str(args.get("path", "")))
         return f"ERROR: unknown tool: {name}"
 
     def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
@@ -387,18 +336,8 @@ class Chat:
         >>> c2 = Chat(client=object(), debug=True)
         >>> c2._debug_tool("calculate", {"expression": "1+2"})
         [tool] /calculate 1+2
-        >>> c2._debug_tool("ls", {"path": "."})
-        [tool] /ls .
         >>> c2._debug_tool("cat", {"path": "README.md"})
         [tool] /cat README.md
-        >>> c2._debug_tool("grep", {"pattern": "x", "path": "*.py"})
-        [tool] /grep x *.py
-        >>> c2._debug_tool("compact", {})
-        [tool] /compact
-        >>> c2._debug_tool("load_image", {"path": "x.png"})
-        [tool] /load_image x.png
-        >>> c2._debug_tool("weird", {"a": 1})
-        [tool] /weird {'a': 1}
         """
         if not self.debug:
             return
@@ -413,8 +352,6 @@ class Chat:
             print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
         elif name == "compact":
             print("[tool] /compact")
-        elif name == "load_image":
-            print(f"[tool] /load_image {args.get('path', '')}".rstrip())
         else:
             print(f"[tool] /{name} {args}")
 
@@ -434,14 +371,6 @@ class Chat:
         1
         >>> c.messages[0]['content'].startswith('Conversation summary')
         True
-        >>> class EmptySummary:
-        ...     def create(self, **kwargs):
-        ...         msg = SimpleNamespace(content=None, tool_calls=[])
-        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-        >>> c2 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=EmptySummary())))
-        >>> _ = c2.send_message('hello')
-        >>> c2.compact_messages()
-        'No prior context to summarize.'
         """
         if len(self.messages) <= 1:
             summary = "No prior context to summarize."
@@ -490,280 +419,6 @@ class Chat:
             }
         ]
         return summary
-
-    def load_image_into_messages(self, path: str) -> str:
-        """Load a local image and append it to chat context as multimodal content.
-
-        >>> import tempfile, os
-        >>> from pathlib import Path
-        >>> c = Chat(client=object())
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     p = Path(d) / "a.png"
-        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out = c.load_image_into_messages("a.png")
-        ...     os.chdir(old)
-        >>> out
-        'Loaded image: a.png'
-        >>> c.messages[-1]["role"]
-        'user'
-        >>> c.model == VISION_PROVIDER_MODELS["groq"]
-        True
-        >>> c.load_image_into_messages("../bad.png")
-        'ERROR: unsafe path'
-        """
-        try:
-            data_url = load_image_as_data_url(path)
-        except ValueError as exc:
-            return f"ERROR: {exc}"
-
-        self.messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"Image loaded from {path}"},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            }
-        )
-        # Switch to a vision-capable model after an image is loaded.
-        if self.provider in VISION_PROVIDER_MODELS:
-            self.model = VISION_PROVIDER_MODELS[self.provider]
-        return f"Loaded image: {path}"
-
-    def _groq_audio_client(self) -> Any:
-        """Return a Groq client for audio APIs.
-
-        >>> from types import SimpleNamespace
-        >>> c = Chat(client=object())
-        >>> c._groq_audio_client = lambda: SimpleNamespace(ok=True)
-        >>> c._groq_audio_client().ok
-        True
-        >>> import os
-        >>> old = os.getenv
-        >>> os.getenv = lambda key: None
-        >>> c2 = Chat(client=object())
-        >>> try:
-        ...     c2._groq_audio_client()
-        ... except RuntimeError as e:
-        ...     print("Missing GROQ_API_KEY" in str(e))
-        True
-        >>> os.getenv = old
-        """
-        load_dotenv()
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError("Missing GROQ_API_KEY in environment or .env")
-        return Groq(api_key=api_key)
-
-    def speech_to_text(self, audio_path: str) -> str:
-        """Transcribe an audio file using Groq STT.
-
-        >>> from types import SimpleNamespace
-        >>> import tempfile, os
-        >>> c = Chat(client=object())
-        >>> class FakeTranscriptions:
-        ...     def create(self, **kwargs):
-        ...         return SimpleNamespace(text="hello from audio")
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(transcriptions=FakeTranscriptions())
-        ... )
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     f = os.path.join(d, "x.wav")
-        ...     _ = open(f, "wb").write(b"RIFF....WAVE")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out = c.speech_to_text("x.wav")
-        ...     os.chdir(old)
-        >>> out
-        'hello from audio'
-        >>> c.speech_to_text("../bad.wav")
-        'ERROR: unsafe path'
-        >>> c.speech_to_text("missing.wav")
-        'ERROR: audio file not found'
-        >>> class FakeTranscriptions2:
-        ...     def create(self, **kwargs):
-        ...         return "plain text transcript"
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(transcriptions=FakeTranscriptions2())
-        ... )
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     f = os.path.join(d, "x.wav")
-        ...     _ = open(f, "wb").write(b"RIFF....WAVE")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out2 = c.speech_to_text("x.wav")
-        ...     os.chdir(old)
-        >>> out2
-        'plain text transcript'
-        >>> class FakeTranscriptions3:
-        ...     def create(self, **kwargs):
-        ...         return SimpleNamespace(text="")
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(transcriptions=FakeTranscriptions3())
-        ... )
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     f = os.path.join(d, "x.wav")
-        ...     _ = open(f, "wb").write(b"RIFF....WAVE")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out3 = c.speech_to_text("x.wav")
-        ...     os.chdir(old)
-        >>> out3
-        'ERROR: empty transcript'
-        """
-        if not is_path_safe(audio_path):
-            return "ERROR: unsafe path"
-        if not os.path.isfile(audio_path):
-            return "ERROR: audio file not found"
-
-        client = self._groq_audio_client()
-        with open(audio_path, "rb") as f:
-            transcript = client.audio.transcriptions.create(
-                file=(os.path.basename(audio_path), f.read()),
-                model="whisper-large-v3-turbo",
-                response_format="verbose_json",
-            )
-
-        if isinstance(transcript, str):
-            return transcript
-        text = getattr(transcript, "text", "")
-        return text or "ERROR: empty transcript"
-
-    def text_to_speech(self, text: str, output_path: str | None = None) -> str:
-        """Generate WAV speech from text with Groq TTS and return output path.
-
-        >>> from types import SimpleNamespace
-        >>> import tempfile, os
-        >>> c = Chat(client=object())
-        >>> class FakeSpeechResponse:
-        ...     def __init__(self, data: bytes):
-        ...         self.data = data
-        ...     def write_to_file(self, path):
-        ...         with open(path, "wb") as f:
-        ...             _ = f.write(self.data)
-        >>> class FakeSpeech:
-        ...     def create(self, **kwargs):
-        ...         return FakeSpeechResponse(b"RIFF....WAVE")
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(speech=FakeSpeech())
-        ... )
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     out = c.text_to_speech("hello", os.path.join(d, "x.wav"))
-        ...     os.path.exists(out)
-        True
-        >>> class FakeSpeechBytes:
-        ...     def create(self, **kwargs):
-        ...         return b"RIFF....WAVE"
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(speech=FakeSpeechBytes())
-        ... )
-        >>> out2 = c.text_to_speech("hello")
-        >>> os.path.exists(out2)
-        True
-        >>> class FakeSpeechRead:
-        ...     class Resp:
-        ...         def read(self):
-        ...             return b"RIFF....WAVE"
-        ...     def create(self, **kwargs):
-        ...         return self.Resp()
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(speech=FakeSpeechRead())
-        ... )
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     out3 = c.text_to_speech("hello", os.path.join(d, "z.wav"))
-        ...     os.path.exists(out3)
-        True
-        >>> class FakeSpeechBad:
-        ...     def create(self, **kwargs):
-        ...         return 123
-        >>> c._groq_audio_client = lambda: SimpleNamespace(
-        ...     audio=SimpleNamespace(speech=FakeSpeechBad())
-        ... )
-        >>> try:
-        ...     c.text_to_speech("hello", "/tmp/w.wav")
-        ... except RuntimeError as e:
-        ...     print("Unsupported TTS response type" in str(e))
-        True
-        """
-        client = self._groq_audio_client()
-        if output_path is None:
-            fd, output_path = tempfile.mkstemp(prefix="docchat_", suffix=".wav")
-            os.close(fd)
-
-        response = client.audio.speech.create(
-            model="playai-tts",
-            voice="Aaliyah-PlayAI",
-            input=text,
-            response_format="wav",
-        )
-
-        if hasattr(response, "write_to_file"):
-            response.write_to_file(output_path)
-        elif isinstance(response, (bytes, bytearray)):
-            with open(output_path, "wb") as f:
-                _ = f.write(bytes(response))
-        elif hasattr(response, "read"):
-            with open(output_path, "wb") as f:
-                _ = f.write(response.read())
-        else:
-            raise RuntimeError("Unsupported TTS response type")
-
-        return output_path
-
-    def speak_text(self, text: str) -> str:
-        """Generate and play spoken audio for the given text.
-
-        >>> from types import SimpleNamespace
-        >>> c = Chat(client=object())
-        >>> c.text_to_speech = lambda text: "/tmp/docchat.wav"
-        >>> old_run = subprocess.run
-        >>> subprocess.run = lambda *a, **k: SimpleNamespace(returncode=0)
-        >>> c.speak_text("hello")
-        '/tmp/docchat.wav'
-        >>> subprocess.run = old_run
-        """
-        wav_path = self.text_to_speech(text)
-        cmd = _audio_player_command(wav_path)
-        subprocess.run(cmd, check=False)
-        return wav_path
-
-    def record_then_transcribe(self, output_path: str = "recording.wav") -> str:  # pragma: no cover
-        """Record microphone audio until Enter and return transcribed text.
-
-        >>> c = Chat(client=object())
-        >>> c.record_then_transcribe("/tmp/nope.wav")
-        'ERROR: install sounddevice and soundfile for voice recording'
-        """
-        try:
-            import numpy as np
-            import sounddevice as sd
-            import soundfile as sf
-        except Exception:
-            return "ERROR: install sounddevice and soundfile for voice recording"
-
-        print("Press Enter to start recording.")
-        _ = input("")
-        print("Recording... press Enter to stop.")
-
-        chunks: list[Any] = []
-
-        def callback(indata, frames, time_info, status):
-            del frames, time_info
-            if status:
-                pass
-            chunks.append(indata.copy())
-
-        with sd.InputStream(samplerate=16000, channels=1, callback=callback):
-            _ = input("")
-
-        if not chunks:
-            return "ERROR: no audio captured"
-
-        audio = np.concatenate(chunks, axis=0)
-        sf.write(output_path, audio, 16000)
-        return self.speech_to_text(output_path)
 
     def send_message(self, user_input: str, max_rounds: int = 6) -> str:
         """Send user text to the model and resolve any automatic tool-calling chain.
@@ -832,15 +487,6 @@ class Chat:
         >>> c6 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LoopNoResult())))
         >>> c6.send_message("loop", max_rounds=1)
         'ERROR: tool loop exceeded'
-        >>> class HardFail:
-        ...     def create(self, **kwargs):
-        ...         raise RuntimeError("boom")
-        >>> c7 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=HardFail())))
-        >>> try:
-        ...     c7.send_message("x")
-        ... except RuntimeError as e:
-        ...     print(str(e))
-        boom
         """
         self.messages.append({"role": "user", "content": user_input})
         last_signature = None
@@ -941,10 +587,6 @@ class Chat:
         'No prior context to summarize.'
         >>> c2.handle_slash_command('/compact now')
         'USAGE: /compact'
-        >>> c2.handle_slash_command('/load_image')
-        'USAGE: /load_image <path>'
-        >>> c2.handle_slash_command('/stt')
-        'USAGE: /stt <audio_path>'
         >>> import tempfile
         >>> from pathlib import Path
         >>> with tempfile.TemporaryDirectory() as d:
@@ -956,22 +598,6 @@ class Chat:
         ...     os.chdir(old)
         >>> out
         'hi'
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     p = Path(d) / "img.png"
-        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out2 = c2.handle_slash_command('/load_image img.png')
-        ...     os.chdir(old)
-        >>> out2
-        'Loaded image: img.png'
-        >>> c2.speech_to_text = lambda p: "transcribed"
-        >>> c2.handle_slash_command('/stt audio.wav')
-        'transcribed'
-        >>> c2.record_then_transcribe = lambda: "hello from mic"
-        >>> c2.send_message = lambda msg: "ECHO:" + msg
-        >>> c2.handle_slash_command('/voice')
-        'ECHO:hello from mic'
         >>> c.handle_slash_command('/bogus')
         'ERROR: unknown command /bogus'
         """
@@ -1008,23 +634,6 @@ class Chat:
                 return "USAGE: /compact"
             self._debug_tool("compact", {})
             result = self.compact_messages()
-        elif command == "load_image":
-            if len(params) != 1:
-                return "USAGE: /load_image <path>"
-            self._debug_tool("load_image", {"path": params[0]})
-            result = self.load_image_into_messages(params[0])
-        elif command == "stt":
-            if len(params) != 1:
-                return "USAGE: /stt <audio_path>"
-            result = self.speech_to_text(params[0])
-        elif command == "voice":
-            if params:
-                return "USAGE: /voice"
-            transcript = self.record_then_transcribe()
-            if transcript.startswith("ERROR:"):
-                return transcript
-            self.messages.append({"role": "user", "content": transcript})
-            result = self.send_message(transcript)
         else:
             return f"ERROR: unknown command /{command}"
 
@@ -1037,7 +646,6 @@ def repl(
     client: Any | None = None,
     provider: str = "groq",
     debug: bool = False,
-    speak: bool = False,
 ) -> None:
     """Run terminal loop and route slash commands directly to tools.
 
@@ -1070,32 +678,12 @@ def repl(
     chat> hello
     ECHO:hello
     <BLANKLINE>
-    >>> def monkey_input3(prompt, items=['/calculate 1+1', 'hi']):
-    ...     try:
-    ...         x = items.pop(0)
-    ...         print(f"{prompt}{x}")
-    ...         return x
-    ...     except IndexError:
-    ...         raise KeyboardInterrupt
-    >>> old_speak = Chat.speak_text
-    >>> Chat.send_message = lambda self, msg: "OK"
-    >>> Chat.speak_text = lambda self, text: (_ for _ in ()).throw(RuntimeError("audio down"))
-    >>> builtins.input = monkey_input3
-    >>> repl(client=object(), speak=True)
-    chat> /calculate 1+1
-    2
-    (tts error) audio down
-    chat> hi
-    OK
-    (tts error) audio down
-    <BLANKLINE>
     >>> builtins.input = old_input
     >>> Chat.send_message = old_send
-    >>> Chat.speak_text = old_speak
     """
     import readline
 
-    chat = Chat(client=client, provider=provider, debug=debug, speak=speak)
+    chat = Chat(client=client, provider=provider, debug=debug)
     readline.parse_and_bind("tab: complete")
     readline.set_completer_delims(" \t\n")
     readline.set_completer(_build_readline_completer())
@@ -1103,21 +691,9 @@ def repl(
         while True:
             user_input = input("chat> ")
             if user_input.startswith("/"):
-                reply = chat.handle_slash_command(user_input)
-                print(reply)
-                if chat.speak and not reply.startswith("ERROR:"):
-                    try:
-                        _ = chat.speak_text(reply)
-                    except Exception as exc:
-                        print(f"(tts error) {exc}")
+                print(chat.handle_slash_command(user_input))
             else:
-                reply = chat.send_message(user_input)
-                print(reply)
-                if chat.speak and not reply.startswith("ERROR:"):
-                    try:
-                        _ = chat.speak_text(reply)
-                    except Exception as exc:
-                        print(f"(tts error) {exc}")
+                print(chat.send_message(user_input))
     except (KeyboardInterrupt, EOFError):
         print()
 
@@ -1125,14 +701,13 @@ def repl(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the chat CLI.
 
-    >>> ns = parse_args(["--debug", "--speak", "--provider", "google", "hello"])
-    >>> (ns.debug, ns.speak, ns.provider, ns.message)
-    (True, True, 'google', 'hello')
+    >>> ns = parse_args(["--debug", "--provider", "google", "hello"])
+    >>> (ns.debug, ns.provider, ns.message)
+    (True, 'google', 'hello')
     """
     parser = argparse.ArgumentParser(description="Chat with local documents using tool-calling.")
     parser.add_argument("message", nargs="?", help="Optional one-shot message to send.")
     parser.add_argument("--debug", action="store_true", help="Print tool calls as they happen.")
-    parser.add_argument("--speak", action="store_true", help="Read assistant replies aloud with TTS.")
     parser.add_argument(
         "--provider",
         choices=sorted(PROVIDER_MODELS.keys()),
@@ -1157,41 +732,23 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     >>> run_cli(["hello"], client=object())
     OK:hello
     0
-    >>> old_speak = Chat.speak_text
-    >>> Chat.speak_text = lambda self, text: "/tmp/fake.wav"
-    >>> run_cli(["--speak", "hello"], client=object())
-    OK:hello
-    0
-    >>> Chat.speak_text = lambda self, text: (_ for _ in ()).throw(RuntimeError("tts broke"))
-    >>> run_cli(["--speak", "hello"], client=object())
-    OK:hello
-    (tts error) tts broke
-    0
-    >>> Chat.speak_text = old_speak
     >>> Chat.send_message = old_send
+    >>> run_cli([], client=object())
+    chat> 
+    0
+
     """
     args = parse_args(argv)
-    chat = Chat(
-        client=client,
-        provider=args.provider,
-        debug=args.debug,
-        speak=args.speak,
-    )
+    chat = Chat(client=client, provider=args.provider, debug=args.debug)
 
     if args.message is not None:
         if args.message.startswith("/"):
-            reply = chat.handle_slash_command(args.message)
+            print(chat.handle_slash_command(args.message))
         else:
-            reply = chat.send_message(args.message)
-        print(reply)
-        if chat.speak and not reply.startswith("ERROR:"):
-            try:
-                _ = chat.speak_text(reply)
-            except Exception as exc:
-                print(f"(tts error) {exc}")
+            print(chat.send_message(args.message))
         return 0
 
-    repl(client=client, provider=args.provider, debug=args.debug, speak=args.speak)
+    repl(client=client, provider=args.provider, debug=args.debug)
     return 0
 
 
