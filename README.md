@@ -10,14 +10,27 @@ PyPI: https://pypi.org/project/cmc-csci040-annaryan/
 
 Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It supports both automatic LLM tool-calling and manual slash commands so you can get fast, deterministic file inspection when needed. The project is packaged for `pip` installation, includes doctests and CI checks, and is designed to safely answer questions about code and text files in the current working directory.
 
-![DocChat demo](docs/demo.gif)
+## Demo
+
+![Project Chat Agent demo](docs/demo.gif)
+
+## Installation
+
+```bash
+pip install cmc-csci040-annaryan
+```
+
+Published by GitHub user `aryan00-hub` on PyPI as `cmc-csci040-annaryan`.
 
 ## Usage
 
 ```bash
-pip install cmc-csci040-annaryan
 chat
 ```
+
+After launch, type prompts and press Enter. Use `Ctrl+C` to exit the REPL.
+
+You can ask normal questions or run slash commands like `/ls`, `/cat`, `/grep`, `/calculate`, and `/compact`.
 
 ## Example: Webpage Project
 
