@@ -1,4 +1,4 @@
-# DocChat: Conversational Interface to Chat with Documents
+# Project Chat Agent
 
 [![Doctests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 [![Integration Tests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml)
@@ -6,7 +6,9 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-DocChat is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`, `/load_image`, `/stt`, `/voice`).
+PyPI: https://pypi.org/project/cmc-csci040-annaryan/
+
+Project chat agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`, `/load_image`, `/stt`, `/voice`).
 
 ![DocChat demo](docs/demo.gif)
 
@@ -83,7 +85,3 @@ scraper.py:# scrape ebay listing data
 chat> Tell me what this scraper collects.
 It collects product information from ebay listings.
 ```
-
-## Security Notes
-
-All file-reading tools reject absolute paths and directory traversal (`..`) so the agent cannot read outside the current project directory.
