@@ -6,8 +6,6 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-PyPI: https://pypi.org/project/cmc-csci040-annaryan/
-
 Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It supports both automatic LLM tool-calling and manual slash commands so you can get fast, deterministic file inspection when needed. The project is packaged for `pip` installation, includes doctests and CI checks, and is designed to safely answer questions about code and text files in the current working directory.
 
 ## Demo
@@ -90,6 +88,3 @@ It collects product information from ebay listings.
 - Debug tool tracing with `chat --debug`.
 - Provider selection with `chat --provider <groq|openai|anthropic|google>`.
 - Slash-command tab completion for commands and file paths.
-- Image context loading with `/load_image <image.png|image.jpg>`.
-- Speech-to-text with `/stt <audiofile>` and `/voice`.
-- Text-to-speech output with `chat --speak`.
