@@ -8,7 +8,21 @@
 
 PyPI: https://pypi.org/project/cmc-csci040-annaryan/
 
-Project chat agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It can summarize repository context and answer questions using safe tool calls over text/code files, with both automatic tool use and explicit slash commands (`/ls`, `/cat`, `/grep`, `/calculate`, `/compact`, `/load_image`, `/stt`, `/voice`).
+Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal.
+
+## Features
+
+- Automatic tool-calling with an LLM for file-aware answers.
+- Manual slash commands: `/ls`, `/cat`, `/grep`, `/calculate`.
+- Path safety guards against absolute paths and `..` traversal.
+- Conversation compaction with `/compact` to reduce context size.
+- One-shot CLI prompts: `chat "your question"`.
+- Debug tool tracing with `chat --debug`.
+- Provider selection with `chat --provider <groq|openai|anthropic|google>`.
+- Slash-command tab completion for commands and file paths.
+- Image context loading with `/load_image <image.png|image.jpg>`.
+- Speech-to-text with `/stt <audiofile>` and `/voice`.
+- Text-to-speech output with `chat --speak`.
 
 ![DocChat demo](docs/demo.gif)
 
