@@ -8,7 +8,7 @@ version = "0.1.1"
 description = "CLI document chat agent with local tool use"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["groq", "openai", "python-dotenv"]
+dependencies = ["groq", "openai", "python-dotenv", "GitPython"]
 
 [project.scripts]
 chat = "chat:run_cli"

@@ -30,6 +30,38 @@ After launch, type prompts and press Enter. Use `Ctrl+C` to exit the REPL.
 
 You can ask normal questions or run slash commands like `/ls`, `/cat`, `/grep`, `/calculate`, and `/compact`.
 
+## Agent Write Actions
+
+This session demonstrates file creation, modification, deletion, and automatic git commits from the agent tools.
+
+```bash
+$ ls -a
+.git  AGENTS.md  README.md  chat.py  tools
+$ git log --oneline -n 2
+abc1234 init project
+$ chat
+chat> /write_file {"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 1+1\\n2\\n\"\"\"\\n","commit_message":"add hello module"}
+Committed def5678
+Doctests for hello.py:
+...
+hello.py::hello.py PASSED
+...
+chat> /write_file {"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 2+2\\n4\\n\"\"\"\\n","commit_message":"update hello doctest"}
+Committed 89ab012
+Doctests for hello.py:
+...
+hello.py::hello.py PASSED
+...
+chat> /rm hello.py
+Removed 1 file(s) and committed [docchat] rm hello.py
+chat> ^C
+$ git log --oneline -n 4
+3456cde [docchat] rm hello.py
+89ab012 [docchat] update hello doctest
+def5678 [docchat] add hello module
+abc1234 init project
+```
+
 ## Example: Webpage Project
 
 This is a good example because it shows using local tools to inspect project files before asking a summary question.
@@ -89,3 +121,7 @@ It collects product information from ebay listings.
 - Provider selection with `chat --provider <groq|openai|anthropic|google>`.
 - Slash-command tab completion for commands and file paths.
 - Image context loading with `/load_image <image.png|image.jpg>`.
+- Verbose doctest execution with `/doctests <path.py>`.
+- Safe file creation/editing with `/write_file` and `/write_files`.
+- Safe file deletion with `/rm <path_or_glob>` plus auto git commit.
+- Startup guard that requires `.git` and loads `AGENTS.md` instructions.
