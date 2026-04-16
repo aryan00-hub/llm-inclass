@@ -10,6 +10,7 @@ import glob
 import json
 import os
 import shlex
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -31,10 +32,9 @@ from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
 from tools.rm_tool import TOOL_SPEC as RM_SPEC
 from tools.rm_tool import run_rm
-from tools.write_file_tool import TOOL_SPEC as WRITE_FILE_SPEC
-from tools.write_file_tool import run_write_file
-from tools.write_files_tool import TOOL_SPEC as WRITE_FILES_SPEC
-from tools.write_files_tool import run_write_files
+from tools.write_file_tool import TOOL_SPEC_WRITE_FILE as WRITE_FILE_SPEC
+from tools.write_file_tool import TOOL_SPEC_WRITE_FILES as WRITE_FILES_SPEC
+from tools.write_file_tool import run_write_file, run_write_files
 
 TOOL_SPECS = [
     CALCULATE_SPEC,
@@ -62,17 +62,35 @@ VISION_PROVIDER_MODELS = {
     "google": "google/gemini-2.5-pro",
 }
 SLASH_COMMANDS = [
-    "calculate",
-    "ls",
-    "cat",
-    "grep",
-    "compact",
-    "load_image",
-    "doctests",
-    "write_file",
-    "write_files",
-    "rm",
+    "calculate", "ls", "cat", "grep", "compact", "load_image",
+    "doctests", "write_file", "write_files", "rm",
 ]
+
+
+def check_startup() -> str | None:
+    """Check that cwd is a git repo and return an error string if not.
+
+    >>> import tempfile, os
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = check_startup()
+    ...     os.chdir(old)
+    >>> result
+    'ERROR: no .git folder found. Please run docchat from inside a git repository.'
+    >>> import git as gitlib
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = gitlib.Repo.init(d)
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = check_startup()
+    ...     os.chdir(old)
+    >>> result is None
+    True
+    """
+    if not os.path.isdir(".git"):
+        return "ERROR: no .git folder found. Please run docchat from inside a git repository."
+    return None
 
 
 def _is_tool_validation_error(exc: Exception) -> bool:
@@ -110,8 +128,11 @@ def _json_safe(obj: Any) -> Any:
     ...         raise ValueError("bad")
     >>> _json_safe(BadD())
     {'ok': True}
-    >>> isinstance(_json_safe(object()), str)
-    True
+    >>> class NoRepr:
+    ...     __slots__ = ()
+    ...     def __str__(self): return 'fallback'
+    >>> _json_safe(NoRepr())
+    'fallback'
     """
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -134,9 +155,16 @@ def _json_safe(obj: Any) -> Any:
 def _path_completion_candidates(prefix: str) -> list[str]:
     """Return sorted path completions for a typed prefix.
 
-    >>> vals = _path_completion_candidates("tools/")
-    >>> any(v.startswith("tools/") for v in vals)
-    True
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = (Path(d) / 'foo.py').write_text('')
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = _path_completion_candidates('foo')
+    ...     os.chdir(old)
+    >>> result
+    ['foo.py']
     """
     pattern = f"{prefix}*" if prefix else "*"
     matches = sorted(glob.glob(pattern))
@@ -163,9 +191,16 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     []
     >>> _slash_completion_options("/bogus x", "x")
     []
-    >>> opts2 = _slash_completion_options("/ls ", "")
-    >>> len(opts2) >= 1
-    True
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = (Path(d) / 'notes.txt').write_text('')
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     opts2 = _slash_completion_options("/ls ", "")
+    ...     os.chdir(old)
+    >>> opts2
+    ['notes.txt']
     """
     if not line.startswith("/"):
         return []
@@ -175,13 +210,12 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     if not parts:
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS)]
 
-    # Completing command name.
     if len(parts) == 1 and not line.endswith(" "):
         prefix = parts[0]
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
 
     cmd = parts[0]
-    if cmd not in {"ls", "cat", "grep", "load_image", "doctests", "rm"}:
+    if cmd not in {"ls", "cat", "grep", "load_image", "doctests", "write_file", "rm"}:
         return []
 
     if line.endswith(" "):
@@ -191,7 +225,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         current = text
         arg_index = len(parts) - 2
 
-    if cmd in {"ls", "cat", "load_image", "doctests", "rm"} and arg_index == 0:
+    if cmd in {"ls", "cat", "load_image", "doctests", "write_file", "rm"} and arg_index == 0:
         return _path_completion_candidates(current)
     if cmd == "grep" and arg_index == 1:
         return _path_completion_candidates(current)
@@ -340,8 +374,16 @@ class Chat:
         'ERROR: unsafe path'
         >>> c.run_tool("cat", {"path": "missing.txt"})
         'ERROR: file not found'
-        >>> isinstance(c.run_tool("grep", {"pattern": "x", "path": "*.py"}), str)
-        True
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> with tempfile.TemporaryDirectory() as _d:
+        ...     _old = os.getcwd()
+        ...     os.chdir(_d)
+        ...     _ = (Path(_d) / 'test.py').write_text('hello world')
+        ...     _r = c.run_tool('grep', {'pattern': 'nomatch_xyz', 'path': '*.py'})
+        ...     os.chdir(_old)
+        >>> _r
+        ''
         >>> from types import SimpleNamespace
         >>> class SummaryOnly:
         ...     def create(self, **kwargs):
@@ -355,9 +397,13 @@ class Chat:
         1
         >>> c.run_tool("load_image", {"path": "../x.png"})
         'ERROR: unsafe path'
-        >>> c.run_tool("doctests", {"path": "../x.py"})
+        >>> c.run_tool("doctests", {"path": "../bad.py"})
         'ERROR: unsafe path'
-        >>> c.run_tool("rm", {"path": "../*.py"})
+        >>> c.run_tool("write_file", {"path": "/etc/bad", "contents": "x", "commit_message": "bad"})
+        'ERROR: unsafe path: /etc/bad'
+        >>> c.run_tool("write_files", {"files": [{"path": "../x", "contents": "y"}], "commit_message": "bad"})
+        'ERROR: unsafe path: ../x'
+        >>> c.run_tool("rm", {"path": "../bad.txt"})
         'ERROR: unsafe path'
         >>> c.run_tool("nope", {})
         'ERROR: unknown tool: nope'
@@ -378,16 +424,15 @@ class Chat:
             return run_doctests(str(args.get("path", "")))
         if name == "write_file":
             return run_write_file(
-                path=str(args.get("path", "")),
-                contents=str(args.get("contents", "")),
-                commit_message=str(args.get("commit_message", "")),
+                str(args.get("path", "")),
+                str(args.get("contents", "")),
+                str(args.get("commit_message", "update")),
             )
         if name == "write_files":
-            files = args.get("files", [])
-            commit_message = str(args.get("commit_message", ""))
-            if not isinstance(files, list):
-                return "ERROR: files must be a non-empty list"
-            return run_write_files(files=files, commit_message=commit_message)
+            return run_write_files(
+                args.get("files", []),
+                str(args.get("commit_message", "update")),
+            )
         if name == "rm":
             return run_rm(str(args.get("path", "")))
         return f"ERROR: unknown tool: {name}"
@@ -416,16 +461,6 @@ class Chat:
             print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
         elif name == "compact":
             print("[tool] /compact")
-        elif name == "load_image":
-            print(f"[tool] /load_image {args.get('path', '')}".rstrip())
-        elif name == "doctests":
-            print(f"[tool] /doctests {args.get('path', '')}".rstrip())
-        elif name == "write_file":
-            print(f"[tool] /write_file {args.get('path', '')}".rstrip())
-        elif name == "write_files":
-            print("[tool] /write_files <files>")
-        elif name == "rm":
-            print(f"[tool] /rm {args.get('path', '')}".rstrip())
         else:
             print(f"[tool] /{name} {args}")
 
@@ -443,8 +478,8 @@ class Chat:
         'short summary'
         >>> len(c.messages)
         1
-        >>> c.messages[0]['content'].startswith('Conversation summary')
-        True
+        >>> c.messages[0]['content']
+        'Conversation summary (compacted):\\\\nshort summary'
         """
         if len(self.messages) <= 1:
             summary = "No prior context to summarize."
@@ -456,7 +491,6 @@ class Chat:
             ]
             return summary
 
-        # Subagent shares provider/model/client but uses an isolated prompt/messages.
         subagent = Chat(
             model=self.model,
             provider=self.provider,
@@ -532,40 +566,6 @@ class Chat:
             self.model = VISION_PROVIDER_MODELS[self.provider]
         return f"Loaded image: {path}"
 
-    def load_agents_md(self) -> str:
-        """Load AGENTS.md via cat tool and place it in system context when present.
-
-        >>> import tempfile, os
-        >>> from pathlib import Path
-        >>> c = Chat(client=object())
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     _ = Path("AGENTS.md").write_text("Rule: be strict", encoding="utf-8")
-        ...     out = c.load_agents_md()
-        ...     os.chdir(old)
-        >>> out
-        'Loaded AGENTS.md'
-        >>> "Rule: be strict" in c.messages[0]["content"]
-        True
-        >>> c2 = Chat(client=object())
-        >>> c2.load_agents_md()
-        'AGENTS.md not found'
-        """
-        if not os.path.isfile("AGENTS.md"):
-            return "AGENTS.md not found"
-
-        contents = run_cat("AGENTS.md")
-        if contents.startswith("ERROR:"):
-            return contents
-
-        self.messages[0]["content"] = (
-            f"{self.messages[0]['content']}\n\n"
-            "Project instructions loaded from AGENTS.md:\n"
-            f"{contents}"
-        )
-        return "Loaded AGENTS.md"
-
     def send_message(self, user_input: str, max_rounds: int = 6) -> str:
         """Send user text to the model and resolve any automatic tool-calling chain.
 
@@ -600,18 +600,21 @@ class Chat:
         >>> c3 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=Endless())))
         >>> c3.send_message("loop", max_rounds=1)
         '2'
-        >>> class RepeatThenStop:
+        >>> class LsThenStop:
         ...     def __init__(self):
         ...         self.calls = 0
         ...     def create(self, **kwargs):
         ...         self.calls += 1
-        ...         func = SimpleNamespace(name='ls', arguments='{\"path\":\".github\"}')
-        ...         tc = SimpleNamespace(id='r1', function=func)
-        ...         msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...         if self.calls == 1:
+        ...             func = SimpleNamespace(name='ls', arguments='{\"path\":\".github\"}')
+        ...             tc = SimpleNamespace(id='r1', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         msg = SimpleNamespace(content='.github/workflows', tool_calls=[])
         ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-        >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RepeatThenStop())))
-        >>> c4.send_message("what folder is in .github?", max_rounds=3).startswith("workflows")
-        True
+        >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LsThenStop())))
+        >>> c4.send_message("what folder is in .github?", max_rounds=3)
+        '.github/workflows'
         >>> class ValidationFallback:
         ...     def __init__(self):
         ...         self.calls = 0
@@ -652,8 +655,6 @@ class Chat:
             except Exception as exc:
                 if not _is_tool_validation_error(exc):
                     raise
-                # Some providers occasionally hallucinate unsupported remote tools
-                # even when local tools are provided. Retry once with tools disabled.
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.messages,
@@ -718,8 +719,8 @@ class Chat:
         >>> c = Chat(client=object())
         >>> c.handle_slash_command('/ls ..')
         'ERROR: unsafe path'
-        >>> isinstance(c.handle_slash_command('/grep hello *.md'), str)
-        True
+        >>> c.handle_slash_command('/grep nomatch_xyz README.md')
+        ''
         >>> c.handle_slash_command('/')
         'ERROR: empty command'
         >>> c.handle_slash_command('/cat')
@@ -735,14 +736,10 @@ class Chat:
         'USAGE: /compact'
         >>> c2.handle_slash_command('/load_image')
         'USAGE: /load_image <path>'
-        >>> c2.handle_slash_command('/doctests')
+        >>> c.handle_slash_command('/doctests')
         'USAGE: /doctests <path>'
-        >>> c2.handle_slash_command('/rm')
-        'USAGE: /rm <path_or_glob>'
-        >>> c2.handle_slash_command('/write_file')
-        'USAGE: /write_file {\"path\":\"...\",\"contents\":\"...\",\"commit_message\":\"...\"}'
-        >>> c2.handle_slash_command('/write_files')
-        'USAGE: /write_files {\"files\":[{\"path\":\"...\",\"contents\":\"...\"}],\"commit_message\":\"...\"}'
+        >>> c.handle_slash_command('/rm')
+        'USAGE: /rm <path>'
         >>> import tempfile
         >>> from pathlib import Path
         >>> with tempfile.TemporaryDirectory() as d:
@@ -806,45 +803,17 @@ class Chat:
         elif command == "doctests":
             if len(params) != 1:
                 return "USAGE: /doctests <path>"
-            self._debug_tool("doctests", {"path": params[0]})
             result = run_doctests(params[0])
-        elif command == "write_file":
-            if not params:
-                return 'USAGE: /write_file {"path":"...","contents":"...","commit_message":"..."}'
-            try:
-                payload = json.loads(" ".join(params))
-            except json.JSONDecodeError:
-                return "ERROR: invalid JSON payload"
-            self._debug_tool("write_file", payload if isinstance(payload, dict) else {})
-            if not isinstance(payload, dict):
-                return "ERROR: payload must be an object"
-            result = run_write_file(
-                path=str(payload.get("path", "")),
-                contents=str(payload.get("contents", "")),
-                commit_message=str(payload.get("commit_message", "")),
-            )
-        elif command == "write_files":
-            if not params:
-                return 'USAGE: /write_files {"files":[{"path":"...","contents":"..."}],"commit_message":"..."}'
-            try:
-                payload = json.loads(" ".join(params))
-            except json.JSONDecodeError:
-                return "ERROR: invalid JSON payload"
-            self._debug_tool("write_files", payload if isinstance(payload, dict) else {})
-            if not isinstance(payload, dict):
-                return "ERROR: payload must be an object"
-            files = payload.get("files", [])
-            if not isinstance(files, list):
-                return "ERROR: files must be a non-empty list"
-            result = run_write_files(
-                files=files,
-                commit_message=str(payload.get("commit_message", "")),
-            )
         elif command == "rm":
             if len(params) != 1:
-                return "USAGE: /rm <path_or_glob>"
-            self._debug_tool("rm", {"path": params[0]})
+                return "USAGE: /rm <path>"
             result = run_rm(params[0])
+        elif command == "write_file":
+            if len(params) != 3:
+                return "USAGE: /write_file <path> <contents> <commit_message>"
+            result = run_write_file(params[0], params[1], params[2])
+        elif command == "write_files":
+            return "USAGE: use the LLM to call write_files with multiple files"
         else:
             return f"ERROR: unknown command /{command}"
 
@@ -895,6 +864,12 @@ def repl(
     import readline
 
     chat = Chat(client=client, provider=provider, debug=debug)
+
+    if os.path.isfile("AGENTS.md"):
+        agents_content = run_cat("AGENTS.md")
+        chat.messages.append({"role": "user", "content": "/cat AGENTS.md"})
+        chat.messages.append({"role": "assistant", "content": agents_content})
+
     readline.parse_and_bind("tab: complete")
     readline.set_completer_delims(" \t\n")
     readline.set_completer(_build_readline_completer())
@@ -929,8 +904,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
-    """Run CLI entrypoint for either one-shot mode or interactive REPL mode.
+    """Run CLI entrypoint: checks for .git, loads AGENTS.md, then runs one-shot or REPL.
 
+    >>> import tempfile, os
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     code = run_cli(["hello"], client=object())
+    ...     os.chdir(old)
+    >>> code
+    1
     >>> run_cli(["/calculate 4*5"], client=object())
     20
     0
@@ -944,23 +927,20 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     OK:hello
     0
     >>> Chat.send_message = old_send
-    >>> import tempfile, os
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     run_cli([], client=object())
-    ...     os.chdir(old)
-    ERROR: .git folder not found in current directory
-    1
-
     """
-    if not os.path.isdir(".git"):
-        print("ERROR: .git folder not found in current directory")
+    args = parse_args(argv)
+
+    error = check_startup()
+    if error:
+        print(error)
         return 1
 
-    args = parse_args(argv)
     chat = Chat(client=client, provider=args.provider, debug=args.debug)
-    _ = chat.load_agents_md()
+
+    if os.path.isfile("AGENTS.md"):
+        agents_content = run_cat("AGENTS.md")
+        chat.messages.append({"role": "user", "content": "/cat AGENTS.md"})
+        chat.messages.append({"role": "assistant", "content": agents_content})
 
     if args.message is not None:
         if args.message.startswith("/"):
@@ -975,3 +955,6 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(run_cli())
+
+
+

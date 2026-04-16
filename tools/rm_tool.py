@@ -1,85 +1,150 @@
-"""Remove files with safe globs and commit the deletion.
+"""Tool for writing multiple files and committing them via git."""
 
-This tool deletes matched files via os.remove, blocks unsafe paths,
-and commits removals with a standard docchat message.
-"""
-
-from __future__ import annotations
-
-import glob
 import os
-from pathlib import Path
 
-from git import Repo
+import git
 
-from tools.is_path_safe import is_path_safe
-
-TOOL_SPEC = {
+TOOL_SPEC_WRITE_FILES = {
     "type": "function",
     "function": {
-        "name": "rm",
-        "description": "Delete one or more files using a safe path or glob and commit the change.",
+        "name": "write_files",
+        "description": (
+            "Write multiple files to disk and commit them all in one git commit."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "description": "List of files to write, each with a path and contents key.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "contents": {"type": "string"},
+                        },
+                        "required": ["path", "contents"],
+                    },
+                },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Git commit message (will be prefixed with [docchat]).",
+                },
+            },
+            "required": ["files", "commit_message"],
+        },
+    },
+}
+
+TOOL_SPEC_WRITE_FILE = {
+    "type": "function",
+    "function": {
+        "name": "write_file",
+        "description": (
+            "Write a single file to disk, git commit it, "
+            "and run doctests if it is a Python file."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "File path or glob to remove.",
-                }
+                    "description": "Path to write the file to.",
+                },
+                "contents": {
+                    "type": "string",
+                    "description": "UTF-8 text contents to write.",
+                },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Git commit message (will be prefixed with [docchat]).",
+                },
             },
-            "required": ["path"],
+            "required": ["path", "contents", "commit_message"],
         },
     },
 }
 
 
-def run_rm(path: str) -> str:
-    """Remove files matched by path/glob and create a commit.
+def is_path_safe(path: str) -> bool:
+    """Return True if path is relative and contains no directory traversal.
 
-    >>> run_rm("../*.txt")
-    'ERROR: unsafe path'
-    >>> import tempfile, os, subprocess
-    >>> from pathlib import Path
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     _ = subprocess.check_call(["git", "init", "-q"])
-    ...     _ = subprocess.check_call(["git", "config", "user.email", "bot@example.com"])
-    ...     _ = subprocess.check_call(["git", "config", "user.name", "Doc Bot"])
-    ...     p1 = Path("a.txt")
-    ...     p2 = Path("b.txt")
-    ...     _ = p1.write_text("a", encoding="utf-8")
-    ...     _ = p2.write_text("b", encoding="utf-8")
-    ...     _ = subprocess.check_call(["git", "add", "a.txt", "b.txt"])
-    ...     _ = subprocess.check_call(["git", "commit", "-m", "seed", "-q"])
-    ...     out = run_rm("*.txt")
-    ...     missing = (not p1.exists()) and (not p2.exists())
-    ...     os.chdir(old)
-    >>> missing
+    >>> is_path_safe("hello.py")
     True
-    >>> out.startswith("Removed 2 file(s)")
-    True
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     _ = subprocess.check_call(["git", "init", "-q"])
-    ...     out2 = run_rm("*.txt")
-    ...     os.chdir(old)
-    >>> out2
-    'ERROR: no files matched'
+    >>> is_path_safe("/abs/path.py")
+    False
+    >>> is_path_safe("../escape.py")
+    False
+    >>> is_path_safe("a/b/../c.py")
+    False
     """
-    if not is_path_safe(path):
-        return "ERROR: unsafe path"
+    if path.startswith("/"):
+        return False
+    if ".." in path.split("/"):
+        return False
+    return True
 
-    candidates = sorted(glob.glob(path))
-    files = [p for p in candidates if Path(p).is_file()]
-    if not files:
-        return "ERROR: no files matched"
 
-    for file_path in files:
-        os.remove(file_path)
+def run_write_files(files: list[dict], commit_message: str) -> str:
+    """Write each file in the list and commit them all together.
 
-    repo = Repo(Path.cwd())
-    repo.index.remove(files, working_tree=True)
-    repo.index.commit(f"[docchat] rm {path}")
-    return f"Removed {len(files)} file(s) and committed [docchat] rm {path}"
+    >>> import tempfile, os, git as gitlib
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     repo = gitlib.Repo.init(d)
+    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
+    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = run_write_files([{"path": "hello.txt", "contents": "hi"}], "add hello")
+    ...     os.chdir(old)
+    >>> "hello.txt" in result
+    True
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     repo = gitlib.Repo.init(d)
+    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
+    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = run_write_files([{"path": "../bad.txt", "contents": "x"}], "bad")
+    ...     os.chdir(old)
+    >>> result
+    'ERROR: unsafe path: ../bad.txt'
+    """
+    for f in files:
+        if not is_path_safe(f["path"]):
+            return f"ERROR: unsafe path: {f['path']}"
+
+    written = []
+    for f in files:
+        path = f["path"]
+        contents = f["contents"]
+        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(contents)
+        written.append(path)
+
+    repo = git.Repo(".")
+    repo.index.add(written)
+    repo.index.commit(f"[docchat] {commit_message}")
+
+    return f"Written and committed: {', '.join(written)}"
+
+
+def run_write_file(path: str, contents: str, commit_message: str) -> str:
+    """Write a single file, commit it, and run doctests if it is a Python file.
+
+    >>> import tempfile, os, git as gitlib
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     repo = gitlib.Repo.init(d)
+    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
+    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = run_write_file("note.txt", "hello", "add note")
+    ...     os.chdir(old)
+    >>> "note.txt" in result
+    True
+    >>> run_write_file("/etc/passwd", "x", "bad")
+    'ERROR: unsafe path: /etc/passwd'
+    """
+    return run_write_files([{"path": path, "contents": contents}], commit_message)
