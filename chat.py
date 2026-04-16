@@ -92,17 +92,6 @@ def check_startup() -> str | None:
     return None
 
 
-def _is_tool_validation_error(exc: Exception) -> bool:
-    """Return True when provider rejected a hallucinated/invalid tool call.
-
-    >>> _is_tool_validation_error(ValueError("x"))
-    False
-    >>> _is_tool_validation_error(RuntimeError("tool call validation failed"))
-    True
-    """
-    return "tool call validation failed" in str(exc).lower()
-
-
 def _json_safe(obj: Any) -> Any:
     """Convert SDK objects into JSON-safe nested primitives.
 
@@ -652,7 +641,7 @@ class Chat:
                     max_tokens=500,
                 )
             except Exception as exc:
-                if not _is_tool_validation_error(exc):
+                if "tool call validation failed" not in str(exc).lower():
                     raise
                 response = self.client.chat.completions.create(
                     model=self.model,
