@@ -6,19 +6,19 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It supports both automatic LLM tool-calling and manual slash commands so you can get fast, deterministic file inspection when needed. The project is packaged for `pip` installation, includes doctests and CI checks, and is designed to safely answer questions about code and text files in the current working directory.
+Project Chat Agent is a terminal-first coding assistant for repository work. It can inspect files, run tool calls, and apply safe write actions with git-backed history, so every change is auditable. The project is packaged for `pip`, validated with doctests/coverage/flake8 in CI, and restricted to safe relative paths inside the active repo.
 
-## Demo
+## Quick Demo
 
 ![Project Chat Agent demo](docs/demo.gif)
 
-## Installation
+## Install
 
 ```bash
 pip install cmc-csci040-annaryan
 ```
 
-Published by GitHub user `aryan00-hub` on PyPI as `cmc-csci040-annaryan`.
+Package name: `cmc-csci040-annaryan` (publisher: `aryan00-hub`).
 
 ## Usage
 
@@ -112,16 +112,12 @@ It collects product information from ebay listings.
 
 ## Features
 
-- Automatic tool-calling with an LLM for file-aware answers.
-- Manual slash commands: `/ls`, `/cat`, `/grep`, `/calculate`.
-- Path safety guards against absolute paths and `..` traversal.
-- Conversation compaction with `/compact` to reduce context size.
-- One-shot CLI prompts: `chat "your question"`.
-- Debug tool tracing with `chat --debug`.
-- Provider selection with `chat --provider <groq|openai|anthropic|google>`.
-- Slash-command tab completion for commands and file paths.
-- Image context loading with `/load_image <image.png|image.jpg>`.
-- Verbose doctest execution with `/doctests <path.py>`.
-- Safe file creation/editing with `/write_file` and `/write_files`.
-- Safe file deletion with `/rm <path_or_glob>` plus auto git commit.
-- Startup guard that requires `.git` and loads `AGENTS.md` instructions.
+- LLM-driven repo Q&A with automatic tool-calling.
+- Manual commands for deterministic file inspection (`/ls`, `/cat`, `/grep`, `/calculate`).
+- Session compaction (`/compact`) to shorten context and reduce token usage.
+- One-shot mode (`chat "question"`), debug tool tracing (`--debug`), and provider switching (`--provider`).
+- Slash-command tab completion for both command names and file paths.
+- Image context support via `/load_image` for visual questions.
+- Project 4 agent tools: `/doctests`, `/write_file`, `/write_files`, `/rm`.
+- Safe path policy across all file tools (blocks absolute paths and `..` traversal).
+- Startup safety checks: requires `.git`; auto-loads `AGENTS.md` when present.
