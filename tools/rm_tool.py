@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import glob
 import os
-import subprocess
 from pathlib import Path
 
 from git import Repo

@@ -6,7 +6,6 @@ stages/commits changes, and optionally runs doctests for python files.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from git import Repo
