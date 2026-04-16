@@ -10,7 +10,6 @@ import glob
 import json
 import os
 import shlex
-import sys
 from typing import Any
 
 from dotenv import load_dotenv
@@ -955,6 +954,3 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(run_cli())
-
-
-

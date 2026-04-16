@@ -148,4 +148,3 @@ def run_write_file(path: str, contents: str, commit_message: str) -> str:
     'ERROR: unsafe path: /etc/passwd'
     """
     return run_write_files([{"path": path, "contents": contents}], commit_message)
-

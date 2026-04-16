@@ -47,13 +47,20 @@ def run_doctests(path: str) -> str:
     'ERROR: unsafe path'
     >>> run_doctests("../bad.py")
     'ERROR: unsafe path'
+    >>> import os
     >>> import tempfile
     >>> from pathlib import Path
     >>> with tempfile.TemporaryDirectory() as d:
     ...     p = Path(d) / "sample.py"
-    ...     _ = p.write_text('def add(a, b):\\n    """\\n    >>> add(1, 2)\\n    3\\n    """\\n    return a + b\\n')
-    ...     out = run_doctests(str(p.relative_to(d)))
-    ...     import os
+    ...     _ = p.write_text(
+    ...         "def add(a, b):\\n"
+    ...         "    \\"\\"\\"\\n"
+    ...         "    >>> add(1, 2)\\n"
+    ...         "    3\\n"
+    ...         "    \\"\\"\\"\\n"
+    ...         "    return a + b\\n",
+    ...         encoding="utf-8",
+    ...     )
     ...     old = os.getcwd()
     ...     os.chdir(d)
     ...     out = run_doctests("sample.py")
@@ -69,4 +76,3 @@ def run_doctests(path: str) -> str:
         text=True,
     )
     return (result.stdout + result.stderr).strip()
-
