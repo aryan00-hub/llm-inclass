@@ -40,13 +40,13 @@ $ ls -a
 $ git log --oneline -n 2
 abc1234 init project
 $ chat
-chat> /write_file {"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 1+1\\n2\\n\"\"\"\\n","commit_message":"add hello module"}
+chat> /write_file '{"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 1+1\\n2\\n\"\"\"\\n","commit_message":"add hello module"}'
 Committed def5678
 Doctests for hello.py:
 ...
 hello.py::hello.py PASSED
 ...
-chat> /write_file {"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 2+2\\n4\\n\"\"\"\\n","commit_message":"update hello doctest"}
+chat> /write_file '{"path":"hello.py","contents":"\"\"\"demo\\n\\n>>> 2+2\\n4\\n\"\"\"\\n","commit_message":"update hello doctest"}'
 Committed 89ab012
 Doctests for hello.py:
 ...
