@@ -1,8 +1,5 @@
-def add(x, y):
-    """Return the sum of two numbers."""
-    return x + y
+def add(a, b):
+    return a + b
 
-# >>> add(3, 4)
-# 7
-# >>> add(5, 2)
-# 7
+>>> add(3, 5)
+# This should raise an error
