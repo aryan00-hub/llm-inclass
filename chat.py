@@ -911,6 +911,7 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     ...     os.chdir(d)
     ...     code = run_cli(["hello"], client=object())
     ...     os.chdir(old)
+    ERROR: no .git folder found. Please run docchat from inside a git repository.
     >>> code
     1
     >>> run_cli(["/calculate 4*5"], client=object())

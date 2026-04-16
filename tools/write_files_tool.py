@@ -127,7 +127,7 @@ def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
     True
     >>> "Doctests for pkg/x.py:" in out2
     True
-    >>> "pytest" in out2
+    >>> "passed" in out2.lower()
     True
     """
     if not isinstance(files, list) or not files:
