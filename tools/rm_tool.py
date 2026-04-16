@@ -11,10 +11,7 @@ import os
 import subprocess
 from pathlib import Path
 
-try:
-    from git import Repo
-except Exception:  # pragma: no cover - optional local fallback
-    Repo = None
+from git import Repo
 
 from tools.is_path_safe import is_path_safe
 
@@ -83,11 +80,7 @@ def run_rm(path: str) -> str:
     for file_path in files:
         os.remove(file_path)
 
-    if Repo is not None:  # pragma: no cover
-        repo = Repo(Path.cwd())
-        repo.index.remove(files, working_tree=True)
-        repo.index.commit(f"[docchat] rm {path}")
-    else:
-        subprocess.check_call(["git", "rm", "--", *files])
-        subprocess.check_call(["git", "commit", "-m", f"[docchat] rm {path}"])
+    repo = Repo(Path.cwd())
+    repo.index.remove(files, working_tree=True)
+    repo.index.commit(f"[docchat] rm {path}")
     return f"Removed {len(files)} file(s) and committed [docchat] rm {path}"

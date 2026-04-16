@@ -9,10 +9,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-try:
-    from git import Repo
-except Exception:  # pragma: no cover - optional local fallback
-    Repo = None
+from git import Repo
 
 from tools.doctests_tool import run_doctests
 from tools.is_path_safe import is_path_safe
@@ -66,19 +63,10 @@ def _git_commit(paths: list[str], commit_message: str) -> str:
     >>> msg.startswith("Committed")
     True
     """
-    if Repo is not None:  # pragma: no cover
-        repo = Repo(Path.cwd())
-        repo.index.add(paths)
-        commit = repo.index.commit(f"[docchat] {commit_message}")
-        return f"Committed {commit.hexsha[:7]}"
-
-    subprocess.check_call(["git", "add", *paths])
-    subprocess.check_call(["git", "commit", "-m", f"[docchat] {commit_message}"])
-    sha = (
-        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True)
-        .strip()
-    )
-    return f"Committed {sha}"
+    repo = Repo(Path.cwd())
+    repo.index.add(paths)
+    commit = repo.index.commit(f"[docchat] {commit_message}")
+    return f"Committed {commit.hexsha[:7]}"
 
 
 def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
