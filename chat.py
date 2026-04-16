@@ -44,17 +44,11 @@ VISION_PROVIDER_MODELS = {
 }
 SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact", "load_image"]
 
-
-def _is_tool_validation_error(exc: Exception) -> bool:
-    """Return True when provider rejected a hallucinated/invalid tool call.
-
-    >>> _is_tool_validation_error(ValueError("x"))
-    False
-    >>> _is_tool_validation_error(RuntimeError("tool call validation failed"))
-    True
-    """
-    return "tool call validation failed" in str(exc).lower()
-
+# NOTE:
+# I deleted your _is_tool_validation_error function;
+# in general, if the documentation for your function is longer than the code,
+# it probably shouldn't be a function;
+# I moved the inside of the code to the call site and added a comment
 
 def _json_safe(obj: Any) -> Any:
     """Convert SDK objects into JSON-safe nested primitives.
@@ -203,6 +197,15 @@ class Chat:
 
     The class keeps conversation state in `messages`, supports automatic LLM tool calls,
     and also supports manual slash-command tool calls in the REPL.
+
+    # your method of faking results is not exactly wrong,
+    # but it's not very good either;
+    # the test cases are more complicated than the code itself,
+    # and they are not "obvious" in what they are doing;
+    # I'm docking you -6 points for these test cases as encouragement
+    # to think of a better strategy for the next part of the project;
+    # if you have better test cases then,
+    # then I'll give you these points back
 
     >>> from types import SimpleNamespace
     >>> class FakeCompletions:
@@ -437,17 +440,14 @@ class Chat:
     def load_image_into_messages(self, path: str) -> str:
         """Load a local image and append it to chat context as multimodal content.
 
-        >>> import tempfile, os
-        >>> from pathlib import Path
+        # this doctest is super complicated;
+        # it's also not obvious to me that it works because it's not obvious
+        # that b"\\x89PNG\\r\\n\\x1a\\nabc" is a valid image;
+        # much better is to just actually have an image in your repo
+        # (say, at docs/example.png)
+        # and call the function on that image
         >>> c = Chat(client=object())
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     p = Path(d) / "a.png"
-        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out = c.load_image_into_messages("a.png")
-        ...     os.chdir(old)
-        >>> out
+        >>> c.load_image_into_messages("docs/example.png")
         'Loaded image: a.png'
         >>> c.messages[-1]["role"]
         'user'
@@ -556,8 +556,10 @@ class Chat:
                     max_tokens=500,
                 )
             except Exception as exc:
-                if not _is_tool_validation_error(exc):
+                # check if the tool had a validation error
+                if not "tool call validation failed" in str(exc).lower():
                     raise
+
                 # Some providers occasionally hallucinate unsupported remote tools
                 # even when local tools are provided. Retry once with tools disabled.
                 response = self.client.chat.completions.create(

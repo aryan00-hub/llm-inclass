@@ -10,6 +10,7 @@ TOOL_SPEC = {
     "function": {
         "name": "compact",
         "description": "Summarize current chat history into 1-5 lines and replace memory.",
+        # you also need in the description why/when to use a tool
         "parameters": {
             "type": "object",
             "properties": {},
@@ -26,3 +27,4 @@ def compact_usage_text() -> str:
     '/compact'
     """
     return "/compact"
+    # the code for actually compacting should be here

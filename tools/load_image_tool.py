@@ -29,6 +29,11 @@ TOOL_SPEC = {
     },
 }
 
+# it's not obvious to me that this works based on the test cases,
+# and you don't have any documentation proving it works,
+# so I'm not awarding credit for it;
+# you are welcome to improve it for the second part of the project
+# and get points for it
 
 def load_image_as_data_url(path: str) -> str:
     """Return a data URL for a safe local image path.
