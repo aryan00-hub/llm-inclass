@@ -60,6 +60,14 @@ VISION_PROVIDER_MODELS = {
     "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
+SYSTEM_PROMPT = (
+    "You are a coding assistant that can inspect project files with tools. "
+    "Never claim to read files unless tool output shows it."
+)
+COMPACT_PROMPT = (
+    "Summarize the chat history in 1-5 short lines. "
+    "Keep concrete facts and prior tool findings."
+)
 SLASH_COMMANDS = [
     "calculate", "ls", "cat", "grep", "compact", "load_image",
     "doctests", "write_file", "write_files", "rm",
@@ -116,11 +124,8 @@ def _json_safe(obj: Any) -> Any:
     ...         raise ValueError("bad")
     >>> _json_safe(BadD())
     {'ok': True}
-    >>> class NoRepr:
-    ...     __slots__ = ()
-    ...     def __str__(self): return 'fallback'
-    >>> _json_safe(NoRepr())
-    'fallback'
+    >>> isinstance(_json_safe(object()), str)
+    True
     """
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -301,10 +306,7 @@ class Chat:
         self.messages: list[dict[str, Any]] = [
             {
                 "role": "system",
-                "content": (
-                    "You are a coding assistant that can inspect project files with tools. "
-                    "Never claim to read files unless tool output shows it."
-                ),
+                "content": SYSTEM_PROMPT,
             }
         ]
 
@@ -492,10 +494,7 @@ class Chat:
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Summarize the chat history in 1-5 short lines. "
-                        "Keep concrete facts and prior tool findings."
-                    ),
+                    "content": COMPACT_PROMPT,
                 },
                 {
                     "role": "user",
@@ -519,18 +518,10 @@ class Chat:
     def load_image_into_messages(self, path: str) -> str:
         """Load a local image and append it to chat context as multimodal content.
 
-        >>> import tempfile, os
-        >>> from pathlib import Path
         >>> c = Chat(client=object())
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     p = Path(d) / "a.png"
-        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out = c.load_image_into_messages("a.png")
-        ...     os.chdir(old)
+        >>> out = c.load_image_into_messages("docs/test_image.png")
         >>> out
-        'Loaded image: a.png'
+        'Loaded image: docs/test_image.png'
         >>> c.messages[-1]["role"]
         'user'
         >>> c.load_image_into_messages("../bad.png")

@@ -5,4 +5,3 @@ pytest
 coverage
 flake8
 GitPython
-gitpython

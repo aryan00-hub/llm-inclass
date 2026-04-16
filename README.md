@@ -8,27 +8,27 @@
 
 Project Chat Agent is a terminal-first coding assistant for repository work. It can inspect files, run tool calls, and apply safe write actions with git-backed history, so every change is auditable. The project is packaged for `pip`, validated with doctests/coverage/flake8 in CI, and restricted to safe relative paths inside the active repo.
 
-## Quick Demo
+## Demo
 
 ![Project Chat Agent demo](docs/demo.gif)
 
-## Install
+## Example Usage
+
+This session shows normal REPL use plus manual slash commands for deterministic local inspection.
 
 ```bash
-pip install cmc-csci040-annaryan
+$ chat
+chat> /ls .
+README.md
+chat.py
+tools
+chat> /cat README.md
+# Project Chat Agent
+...
+chat> summarize this repo in two sentences
+This repository contains a terminal chat agent for local project inspection and safe automation. It combines LLM tool-calling with path-restricted file operations and CI-tested behavior.
+chat> ^C
 ```
-
-Package name: `cmc-csci040-annaryan` (publisher: `aryan00-hub`).
-
-## Usage
-
-```bash
-chat
-```
-
-After launch, type prompts and press Enter. Use `Ctrl+C` to exit the REPL.
-
-You can ask normal questions or run slash commands like `/ls`, `/cat`, `/grep`, `/calculate`, and `/compact`.
 
 ## Agent Write Actions
 
@@ -60,6 +60,16 @@ $ git log --oneline -n 4
 89ab012 [docchat] update hello doctest
 def5678 [docchat] add hello module
 abc1234 init project
+```
+
+## Startup Checks
+
+This session shows startup safety checks required for agent mode (`.git` required, `AGENTS.md` auto-loaded when present).
+
+```bash
+$ mkdir -p /tmp/no_repo && cd /tmp/no_repo
+$ python3 /path/to/chat.py
+ERROR: no .git folder found. Please run docchat from inside a git repository.
 ```
 
 ## Example: Webpage Project
@@ -109,15 +119,3 @@ scraper.py:# scrape ebay listing data
 chat> Tell me what this scraper collects.
 It collects product information from ebay listings.
 ```
-
-## Features
-
-- LLM-driven repo Q&A with automatic tool-calling.
-- Manual commands for deterministic file inspection (`/ls`, `/cat`, `/grep`, `/calculate`).
-- Session compaction (`/compact`) to shorten context and reduce token usage.
-- One-shot mode (`chat "question"`), debug tool tracing (`--debug`), and provider switching (`--provider`).
-- Slash-command tab completion for both command names and file paths.
-- Image context support via `/load_image` for visual questions.
-- Project 4 agent tools: `/doctests`, `/write_file`, `/write_files`, `/rm`.
-- Safe path policy across all file tools (blocks absolute paths and `..` traversal).
-- Startup safety checks: requires `.git`; auto-loads `AGENTS.md` when present.

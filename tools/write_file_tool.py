@@ -1,22 +1,27 @@
-"""Tool for writing multiple files and committing them via git."""
+"""Write-file tool specs plus a thin wrapper around write_files.
 
-import os
+This module keeps the single-file tool interface while delegating core logic to
+the multi-file implementation to avoid duplicate write/commit code.
+"""
 
-import git
+from __future__ import annotations
+
+from tools.write_files_tool import run_write_files as run_write_files_core
 
 TOOL_SPEC_WRITE_FILES = {
     "type": "function",
     "function": {
         "name": "write_files",
         "description": (
-            "Write multiple files to disk and commit them all in one git commit."
+            "Write multiple UTF-8 files and commit once. "
+            "Use when a task updates more than one file."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "files": {
                     "type": "array",
-                    "description": "List of files to write, each with a path and contents key.",
+                    "description": "List of file objects with path and contents.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -28,7 +33,7 @@ TOOL_SPEC_WRITE_FILES = {
                 },
                 "commit_message": {
                     "type": "string",
-                    "description": "Git commit message (will be prefixed with [docchat]).",
+                    "description": "Commit message suffix; '[docchat] ' is added automatically.",
                 },
             },
             "required": ["files", "commit_message"],
@@ -41,23 +46,17 @@ TOOL_SPEC_WRITE_FILE = {
     "function": {
         "name": "write_file",
         "description": (
-            "Write a single file to disk, git commit it, "
-            "and run doctests if it is a Python file."
+            "Write one UTF-8 file, commit it, and run doctests if it is Python. "
+            "Use for a single-file edit."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to write the file to.",
-                },
-                "contents": {
-                    "type": "string",
-                    "description": "UTF-8 text contents to write.",
-                },
+                "path": {"type": "string", "description": "Relative file path to write."},
+                "contents": {"type": "string", "description": "UTF-8 text contents."},
                 "commit_message": {
                     "type": "string",
-                    "description": "Git commit message (will be prefixed with [docchat]).",
+                    "description": "Commit message suffix; '[docchat] ' is added automatically.",
                 },
             },
             "required": ["path", "contents", "commit_message"],
@@ -66,85 +65,37 @@ TOOL_SPEC_WRITE_FILE = {
 }
 
 
-def is_path_safe(path: str) -> bool:
-    """Return True if path is relative and contains no directory traversal.
-
-    >>> is_path_safe("hello.py")
-    True
-    >>> is_path_safe("/abs/path.py")
-    False
-    >>> is_path_safe("../escape.py")
-    False
-    >>> is_path_safe("a/b/../c.py")
-    False
-    """
-    if path.startswith("/"):
-        return False
-    if ".." in path.split("/"):
-        return False
-    return True
-
-
-def run_write_files(files: list[dict], commit_message: str) -> str:
-    """Write each file in the list and commit them all together.
-
-    >>> import tempfile, os, git as gitlib
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     repo = gitlib.Repo.init(d)
-    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
-    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     result = run_write_files([{"path": "hello.txt", "contents": "hi"}], "add hello")
-    ...     os.chdir(old)
-    >>> "hello.txt" in result
-    True
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     repo = gitlib.Repo.init(d)
-    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
-    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     result = run_write_files([{"path": "../bad.txt", "contents": "x"}], "bad")
-    ...     os.chdir(old)
-    >>> result
-    'ERROR: unsafe path: ../bad.txt'
-    """
-    for f in files:
-        if not is_path_safe(f["path"]):
-            return f"ERROR: unsafe path: {f['path']}"
-
-    written = []
-    for f in files:
-        path = f["path"]
-        contents = f["contents"]
-        os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(contents)
-        written.append(path)
-
-    repo = git.Repo(".")
-    repo.index.add(written)
-    repo.index.commit(f"[docchat] {commit_message}")
-
-    return f"Written and committed: {', '.join(written)}"
-
-
 def run_write_file(path: str, contents: str, commit_message: str) -> str:
-    """Write a single file, commit it, and run doctests if it is a Python file.
+    """Write one file by delegating to run_write_files.
 
-    >>> import tempfile, os, git as gitlib
+    >>> run_write_file("../bad.txt", "x", "bad")
+    'ERROR: unsafe path: ../bad.txt'
+    >>> import tempfile, os, subprocess
+    >>> from pathlib import Path
     >>> with tempfile.TemporaryDirectory() as d:
-    ...     repo = gitlib.Repo.init(d)
-    ...     _ = repo.config_writer().set_value("user", "name", "test").release()
-    ...     _ = repo.config_writer().set_value("user", "email", "t@t.com").release()
     ...     old = os.getcwd()
     ...     os.chdir(d)
-    ...     result = run_write_file("note.txt", "hello", "add note")
+    ...     _ = subprocess.check_call(["git", "init", "-q"])
+    ...     _ = subprocess.check_call(["git", "config", "user.email", "bot@example.com"])
+    ...     _ = subprocess.check_call(["git", "config", "user.name", "Doc Bot"])
+    ...     out = run_write_file("note.txt", "hello", "add note")
+    ...     saved = Path("note.txt").read_text(encoding="utf-8")
     ...     os.chdir(old)
-    >>> "note.txt" in result
+    >>> saved
+    'hello'
+    >>> out.startswith("Committed")
     True
-    >>> run_write_file("/etc/passwd", "x", "bad")
-    'ERROR: unsafe path: /etc/passwd'
     """
-    return run_write_files([{"path": path, "contents": contents}], commit_message)
+    return run_write_files(
+        files=[{"path": path, "contents": contents}],
+        commit_message=commit_message,
+    )
+
+
+def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
+    """Delegate to the canonical write_files implementation.
+
+    >>> run_write_files([], "noop")
+    'ERROR: files must be a non-empty list'
+    """
+    return run_write_files_core(files, commit_message)
