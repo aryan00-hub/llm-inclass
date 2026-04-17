@@ -68,6 +68,10 @@ COMPACT_PROMPT = (
     "Summarize the chat history in 1-5 short lines. "
     "Keep concrete facts and prior tool findings."
 )
+RALPH_RETRY_PROMPT = (
+    "Doctests are still failing. Use tools to fix the code and run doctests again. "
+    "Do not give a final answer until doctests pass."
+)
 SLASH_COMMANDS = [
     "calculate", "ls", "cat", "grep", "compact", "load_image",
     "doctests", "write_file", "write_files", "rm",
@@ -255,6 +259,53 @@ def _build_readline_completer():
     return _completer
 
 
+def _doctest_status(tool_name: str, tool_output: str) -> str | None:
+    """Return doctest status: 'pass', 'fail', or None if output is unrelated.
+
+    >>> _doctest_status("ls", "README.md")
+    >>> _doctest_status("doctests", "Test passed.")
+    'pass'
+    >>> _doctest_status("doctests", "***Test Failed*** 1 failures.")
+    'fail'
+    >>> _doctest_status("write_file", "Committed abc123\\nDoctests for x.py:\\nTest passed.")
+    'pass'
+    >>> _doctest_status("write_files", "Committed abc123\\nDoctests for x.py:\\nFAILED")
+    'fail'
+    """
+    lowered = tool_output.lower()
+    ran_doctests = (
+        tool_name == "doctests"
+        or "doctests for " in lowered
+        or "test passed." in lowered
+        or "***test failed***" in lowered
+        or "items passed" in lowered
+    )
+    if not ran_doctests:
+        return None
+
+    failed_markers = (
+        "***test failed***",
+        "failed test",
+        "failures.",
+        "\nfailed",
+        "traceback",
+        "error:",
+    )
+    if any(marker in lowered for marker in failed_markers):
+        return "fail"
+
+    passed_markers = (
+        "test passed.",
+        "items passed",
+        "passed and 0 failed",
+        "0 failed",
+    )
+    if any(marker in lowered for marker in passed_markers):
+        return "pass"
+
+    return "fail"
+
+
 class Chat:
     """A small doc-chat agent that can read local files through safe tools.
 
@@ -415,8 +466,9 @@ class Chat:
         if name == "write_file":
             return run_write_file(
                 str(args.get("path", "")),
-                str(args.get("contents", "")),
+                args.get("contents"),
                 str(args.get("commit_message", "update")),
+                args.get("diff"),
             )
         if name == "write_files":
             return run_write_files(
@@ -615,11 +667,39 @@ class Chat:
         >>> c6 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LoopNoResult())))
         >>> c6.send_message("loop", max_rounds=1)
         'ERROR: tool loop exceeded'
+        >>> class RalphClient:
+        ...     def __init__(self):
+        ...         self.calls = 0
+        ...     def create(self, **kwargs):
+        ...         self.calls += 1
+        ...         if self.calls == 1:
+        ...             func = SimpleNamespace(name='doctests', arguments='{"path":"x.py"}')
+        ...             tc = SimpleNamespace(id='d1', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         if self.calls == 2:
+        ...             msg = SimpleNamespace(content='final too early', tool_calls=[])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         if self.calls == 3:
+        ...             func = SimpleNamespace(name='doctests', arguments='{"path":"x.py"}')
+        ...             tc = SimpleNamespace(id='d2', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         msg = SimpleNamespace(content='all good now', tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c7 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RalphClient())))
+        >>> old_run_tool = Chat.run_tool
+        >>> vals = iter(["***Test Failed*** 1 failures.", "Test passed."])
+        >>> Chat.run_tool = lambda self, name, args: next(vals) if name == "doctests" else ""
+        >>> c7.send_message("fix tests", max_rounds=6)
+        'all good now'
+        >>> Chat.run_tool = old_run_tool
         """
         self.messages.append({"role": "user", "content": user_input})
         last_signature = None
         repeat_count = 0
         last_tool_result = ""
+        doctests_pending_fix = False
 
         for _ in range(max_rounds):
             try:
@@ -674,6 +754,11 @@ class Chat:
                     self._debug_tool(name, args)
                     result = self.run_tool(name, args)
                     last_tool_result = result
+                    status = _doctest_status(name, result)
+                    if status == "fail":
+                        doctests_pending_fix = True
+                    elif status == "pass":
+                        doctests_pending_fix = False
                     self.messages.append(
                         {
                             "role": "tool",
@@ -685,9 +770,16 @@ class Chat:
                 continue
 
             content = getattr(message, "content", "") or ""
+            if doctests_pending_fix:
+                # Ralph loop: force another tool round until doctests pass.
+                self.messages.append({"role": "assistant", "content": content})
+                self.messages.append({"role": "user", "content": RALPH_RETRY_PROMPT})
+                continue
             self.messages.append({"role": "assistant", "content": content})
             return content
 
+        if doctests_pending_fix:
+            return "ERROR: doctests still failing after maximum tool rounds"
         if last_tool_result:
             return last_tool_result
         return "ERROR: tool loop exceeded"
