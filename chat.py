@@ -29,6 +29,8 @@ from tools.load_image_tool import TOOL_SPEC as LOAD_IMAGE_SPEC
 from tools.load_image_tool import load_image_as_data_url
 from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
+from tools.pip_install_tool import TOOL_SPEC as PIP_INSTALL_SPEC
+from tools.pip_install_tool import run_pip_install
 from tools.rm_tool import TOOL_SPEC as RM_SPEC
 from tools.rm_tool import run_rm
 from tools.write_file_tool import TOOL_SPEC_WRITE_FILE as WRITE_FILE_SPEC
@@ -46,6 +48,7 @@ TOOL_SPECS = [
     WRITE_FILE_SPEC,
     WRITE_FILES_SPEC,
     RM_SPEC,
+    PIP_INSTALL_SPEC,
 ]
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
@@ -74,7 +77,7 @@ RALPH_RETRY_PROMPT = (
 )
 SLASH_COMMANDS = [
     "calculate", "ls", "cat", "grep", "compact", "load_image",
-    "doctests", "write_file", "write_files", "rm",
+    "doctests", "write_file", "write_files", "rm", "pip_install",
 ]
 
 
@@ -177,8 +180,9 @@ def _path_completion_candidates(prefix: str) -> list[str]:
 def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
-    >>> _slash_completion_options("/", "/")
-    ['/calculate', '/cat', '/compact', '/doctests', '/grep', '/load_image', '/ls', '/rm', '/write_file', '/write_files']
+    >>> root_opts = _slash_completion_options("/", "/")
+    >>> '/pip_install' in root_opts and '/write_files' in root_opts
+    True
     >>> _slash_completion_options("/l", "/l")
     ['/load_image', '/ls']
     >>> opts = _slash_completion_options("/ls .g", ".g")
@@ -212,7 +216,7 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
 
     cmd = parts[0]
-    if cmd not in {"ls", "cat", "grep", "load_image", "doctests", "write_file", "rm"}:
+    if cmd not in {"ls", "cat", "grep", "load_image", "doctests", "write_file", "rm", "pip_install"}:
         return []
 
     if line.endswith(" "):
@@ -224,6 +228,8 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
 
     if cmd in {"ls", "cat", "load_image", "doctests", "write_file", "rm"} and arg_index == 0:
         return _path_completion_candidates(current)
+    if cmd == "pip_install" and arg_index == 0:
+        return []
     if cmd == "grep" and arg_index == 1:
         return _path_completion_candidates(current)
     return []
@@ -446,6 +452,8 @@ class Chat:
         'ERROR: unsafe path: ../x'
         >>> c.run_tool("rm", {"path": "../bad.txt"})
         'ERROR: unsafe path'
+        >>> c.run_tool("pip_install", {"library_name": "../bad"})
+        'ERROR: invalid library name'
         >>> c.run_tool("nope", {})
         'ERROR: unknown tool: nope'
         """
@@ -477,6 +485,8 @@ class Chat:
             )
         if name == "rm":
             return run_rm(str(args.get("path", "")))
+        if name == "pip_install":
+            return run_pip_install(str(args.get("library_name", "")))
         return f"ERROR: unknown tool: {name}"
 
     def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
@@ -503,6 +513,8 @@ class Chat:
             print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
         elif name == "compact":
             print("[tool] /compact")
+        elif name == "pip_install":
+            print(f"[tool] /pip_install {args.get('library_name', '')}".rstrip())
         else:
             print(f"[tool] /{name} {args}")
 
@@ -811,6 +823,8 @@ class Chat:
         'USAGE: /doctests <path>'
         >>> c.handle_slash_command('/rm')
         'USAGE: /rm <path>'
+        >>> c.handle_slash_command('/pip_install')
+        'USAGE: /pip_install <library_name>'
         >>> import tempfile
         >>> from pathlib import Path
         >>> with tempfile.TemporaryDirectory() as d:
@@ -879,6 +893,10 @@ class Chat:
             if len(params) != 1:
                 return "USAGE: /rm <path>"
             result = run_rm(params[0])
+        elif command == "pip_install":
+            if len(params) != 1:
+                return "USAGE: /pip_install <library_name>"
+            result = run_pip_install(params[0])
         elif command == "write_file":
             if len(params) != 3:
                 return "USAGE: /write_file <path> <contents> <commit_message>"

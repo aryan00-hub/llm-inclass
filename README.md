@@ -6,7 +6,7 @@
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-Project Chat Agent is a terminal-first assistant for inspecting and editing repository files with safe local tools. It supports both automatic tool calling and manual slash commands, and it records write/remove actions as git commits for auditable history. Project 4 adds repo startup checks, AGENTS.md bootstrapping, doctest execution, safe write/remove tools, diff-based updates, and a Ralph retry loop for failing doctests.
+Project Chat Agent is a terminal-first assistant for inspecting and editing repository files with safe local tools. It supports both automatic tool calling and manual slash commands, and it records write/remove actions as git commits for auditable history. Project 4 adds repo startup checks, AGENTS.md bootstrapping, doctest execution, safe write/remove tools, diff-based updates, a Ralph retry loop for failing doctests, and an optional `pip_install` tool.
 
 ## Demo
 
@@ -75,6 +75,17 @@ This is a good example because it demonstrates that when doctests fail, the agen
 $ chat
 chat> Create a file bad_loop.py with a failing doctest, then keep fixing and re-running doctests until they pass. Use tools only.
 The doctests for the file `bad_loop.py` now pass.
+```
+
+## Example: pip_install Tool (Extra Credit)
+
+This is a good example because it shows package installation can be requested directly through the agent tool.
+
+```bash
+$ chat
+chat> /pip_install requests
+...
+Successfully installed requests ...
 ```
 
 ## Example: Webpage Project
