@@ -4,5 +4,4 @@ python-dotenv
 pytest
 coverage
 flake8
-build
-twine
+GitPython

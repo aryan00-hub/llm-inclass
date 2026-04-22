@@ -2,37 +2,95 @@
 
 [![Doctests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 [![Integration Tests](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/integration-tests.yml)
-![flake8](https://img.shields.io/github/actions/workflow/status/aryan00-hub/llm-inclass/flake8.yml?label=flake8)
+[![flake8](https://img.shields.io/github/actions/workflow/status/aryan00-hub/llm-inclass/flake8.yml?label=flake8)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/flake8.yml)
 [![PyPI](https://img.shields.io/pypi/v/cmc-csci040-annaryan)](https://pypi.org/project/cmc-csci040-annaryan/)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/aryan00-hub/llm-inclass/actions/workflows/doctests.yml)
 
-Project Chat Agent is a Python-based conversational assistant for inspecting and reasoning over local project documents from the terminal. It supports both automatic LLM tool-calling and manual slash commands so you can get fast, deterministic file inspection when needed. The project is packaged for `pip` installation, includes doctests and CI checks, and is designed to safely answer questions about code and text files in the current working directory.
+Project Chat Agent is a terminal-first assistant for inspecting and editing repository files with safe local tools. It supports both automatic tool calling and manual slash commands, and it records write/remove actions as git commits for auditable history. Project 4 adds repo startup checks, AGENTS.md bootstrapping, doctest execution, safe write/remove tools, diff-based updates, a Ralph retry loop for failing doctests, and an optional `pip_install` tool.
 
 ## Demo
 
 ![Project Chat Agent demo](docs/demo.gif)
 
-## Installation
+## Example: Agent File Writes + Git Commits
+
+This is a good example because it proves that the agent can create, update, and remove files while making git commits automatically.
 
 ```bash
-pip install cmc-csci040-annaryan
+$ ls -a
+.git  AGENTS.md  README.md  chat.py  tools
+$ git log --oneline -n 1
+680fe78 [docchat] Initial commit
+$ chat
+chat> /write_file tmp_one.txt hello "add tmp one"
+Committed 9dc91c2
+chat> /rm tmp_one.txt
+Removed 1 file(s) and committed [docchat] rm tmp_one.txt
+chat> ^C
+$ git log --oneline -n 3
+716cec9 [docchat] rm tmp_one.txt
+9dc91c2 [docchat] add tmp one
+680fe78 [docchat] Initial commit
 ```
 
-Published by GitHub user `aryan00-hub` on PyPI as `cmc-csci040-annaryan`.
+## Example: Startup Safety Checks
 
-## Usage
+This is a good example because it demonstrates the required Project 4 startup guard (`.git` must exist).
 
 ```bash
-chat
+$ mkdir -p /tmp/p4check && cd /tmp/p4check
+$ python3 /path/to/chat.py
+ERROR: no .git folder found. Please run docchat from inside a git repository.
 ```
 
-After launch, type prompts and press Enter. Use `Ctrl+C` to exit the REPL.
+## Example: Doctests Tool
 
-You can ask normal questions or run slash commands like `/ls`, `/cat`, `/grep`, `/calculate`, and `/compact`.
+This is a good example because it shows explicit doctest execution output from the tool.
+
+```bash
+$ chat "/doctests tools/ls_tool.py"
+...
+tools/ls_tool.py::tools.ls_tool.run_ls PASSED
+...
+```
+
+## Example: Diff-Based File Update
+
+This is a good example because it uses a patch-style update (`diff`) instead of rewriting a full file.
+
+```bash
+$ chat
+chat> update tools/compact_tool.py to improve the compact description using write_file with a diff patch
+Committed abc1234
+Doctests for tools/compact_tool.py:
+...
+Test passed.
+```
+
+## Example: Ralph Retry Loop
+
+This is a good example because it demonstrates that when doctests fail, the agent keeps using tools until doctests pass before returning a final answer.
+
+```bash
+$ chat
+chat> Create a file bad_loop.py with a failing doctest, then keep fixing and re-running doctests until they pass. Use tools only.
+The doctests for the file `bad_loop.py` now pass.
+```
+
+## Example: pip_install Tool (Extra Credit)
+
+This is a good example because it shows package installation can be requested directly through the agent tool.
+
+```bash
+$ chat
+chat> /pip_install requests
+...
+Successfully installed requests ...
+```
 
 ## Example: Webpage Project
 
-This is a good example because it shows using local tools to inspect project files before asking a summary question.
+This is a good example because it shows inspecting files first, then answering using grounded repo context.
 
 ```bash
 $ cd test_projects/webpage
@@ -48,7 +106,7 @@ This project appears to build a personal webpage with static files.
 
 ## Example: Markdown Compiler
 
-This is a good example because it combines direct file inspection with a focused question about project purpose.
+This is a good example because it combines file inspection and summary of implementation intent.
 
 ```bash
 $ cd test_projects/markdown_compiler
@@ -64,7 +122,7 @@ It converts markdown content into HTML output.
 
 ## Example: Ebay Scraper
 
-This is a good example because it uses both README context and code search to answer a practical question.
+This is a good example because it uses both directory listing and pattern search to answer a concrete question.
 
 ```bash
 $ cd test_projects/ebay_scraper
@@ -77,15 +135,3 @@ scraper.py:# scrape ebay listing data
 chat> Tell me what this scraper collects.
 It collects product information from ebay listings.
 ```
-
-## Features
-
-- Automatic tool-calling with an LLM for file-aware answers.
-- Manual slash commands: `/ls`, `/cat`, `/grep`, `/calculate`.
-- Path safety guards against absolute paths and `..` traversal.
-- Conversation compaction with `/compact` to reduce context size.
-- One-shot CLI prompts: `chat "your question"`.
-- Debug tool tracing with `chat --debug`.
-- Provider selection with `chat --provider <groq|openai|anthropic|google>`.
-- Slash-command tab completion for commands and file paths.
-- Image context loading with `/load_image <image.png|image.jpg>`.

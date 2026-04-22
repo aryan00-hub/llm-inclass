@@ -21,14 +21,35 @@ from tools.calculate import run_calculate
 from tools.compact_tool import TOOL_SPEC as COMPACT_SPEC
 from tools.cat_tool import TOOL_SPEC as CAT_SPEC
 from tools.cat_tool import run_cat
+from tools.doctests_tool import TOOL_SPEC as DOCTESTS_SPEC
+from tools.doctests_tool import run_doctests
 from tools.grep_tool import TOOL_SPEC as GREP_SPEC
 from tools.grep_tool import run_grep
 from tools.load_image_tool import TOOL_SPEC as LOAD_IMAGE_SPEC
 from tools.load_image_tool import load_image_as_data_url
 from tools.ls_tool import TOOL_SPEC as LS_SPEC
 from tools.ls_tool import run_ls
+from tools.pip_install_tool import TOOL_SPEC as PIP_INSTALL_SPEC
+from tools.pip_install_tool import run_pip_install
+from tools.rm_tool import TOOL_SPEC as RM_SPEC
+from tools.rm_tool import run_rm
+from tools.write_file_tool import TOOL_SPEC_WRITE_FILE as WRITE_FILE_SPEC
+from tools.write_file_tool import TOOL_SPEC_WRITE_FILES as WRITE_FILES_SPEC
+from tools.write_file_tool import run_write_file, run_write_files
 
-TOOL_SPECS = [CALCULATE_SPEC, LS_SPEC, CAT_SPEC, GREP_SPEC, COMPACT_SPEC, LOAD_IMAGE_SPEC]
+TOOL_SPECS = [
+    CALCULATE_SPEC,
+    LS_SPEC,
+    CAT_SPEC,
+    GREP_SPEC,
+    COMPACT_SPEC,
+    LOAD_IMAGE_SPEC,
+    DOCTESTS_SPEC,
+    WRITE_FILE_SPEC,
+    WRITE_FILES_SPEC,
+    RM_SPEC,
+    PIP_INSTALL_SPEC,
+]
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 PROVIDER_MODELS = {
     "groq": "llama-3.1-8b-instant",
@@ -42,18 +63,48 @@ VISION_PROVIDER_MODELS = {
     "anthropic": "anthropic/claude-opus-4.6",
     "google": "google/gemini-2.5-pro",
 }
-SLASH_COMMANDS = ["calculate", "ls", "cat", "grep", "compact", "load_image"]
+SYSTEM_PROMPT = (
+    "You are a coding assistant that can inspect project files with tools. "
+    "Never claim to read files unless tool output shows it."
+)
+COMPACT_PROMPT = (
+    "Summarize the chat history in 1-5 short lines. "
+    "Keep concrete facts and prior tool findings."
+)
+RALPH_RETRY_PROMPT = (
+    "Doctests are still failing. Use tools to fix the code and run doctests again. "
+    "Do not give a final answer until doctests pass."
+)
+SLASH_COMMANDS = [
+    "calculate", "ls", "cat", "grep", "compact", "load_image",
+    "doctests", "write_file", "write_files", "rm", "pip_install",
+]
 
 
-def _is_tool_validation_error(exc: Exception) -> bool:
-    """Return True when provider rejected a hallucinated/invalid tool call.
+def check_startup() -> str | None:
+    """Check that cwd is a git repo and return an error string if not.
 
-    >>> _is_tool_validation_error(ValueError("x"))
-    False
-    >>> _is_tool_validation_error(RuntimeError("tool call validation failed"))
+    >>> import tempfile, os
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = check_startup()
+    ...     os.chdir(old)
+    >>> result
+    'ERROR: no .git folder found. Please run docchat from inside a git repository.'
+    >>> import git as gitlib
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = gitlib.Repo.init(d)
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = check_startup()
+    ...     os.chdir(old)
+    >>> result is None
     True
     """
-    return "tool call validation failed" in str(exc).lower()
+    if not os.path.isdir(".git"):
+        return "ERROR: no .git folder found. Please run docchat from inside a git repository."
+    return None
 
 
 def _json_safe(obj: Any) -> Any:
@@ -80,16 +131,17 @@ def _json_safe(obj: Any) -> Any:
     ...         raise ValueError("bad")
     >>> _json_safe(BadD())
     {'ok': True}
-    >>> isinstance(_json_safe(object()), str)
+    >>> type(_json_safe(object())) is str
     True
     """
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    obj_type = type(obj)
+    if obj is None or obj_type in (str, int, float, bool):
         return obj
-    if isinstance(obj, list):
+    if obj_type is list:
         return [_json_safe(x) for x in obj]
-    if isinstance(obj, tuple):
+    if obj_type is tuple:
         return [_json_safe(x) for x in obj]
-    if isinstance(obj, dict):
+    if obj_type is dict:
         return {str(k): _json_safe(v) for k, v in obj.items()}
     if hasattr(obj, "model_dump"):
         try:
@@ -104,9 +156,16 @@ def _json_safe(obj: Any) -> Any:
 def _path_completion_candidates(prefix: str) -> list[str]:
     """Return sorted path completions for a typed prefix.
 
-    >>> vals = _path_completion_candidates("tools/")
-    >>> any(v.startswith("tools/") for v in vals)
-    True
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = (Path(d) / 'foo.py').write_text('')
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     result = _path_completion_candidates('foo')
+    ...     os.chdir(old)
+    >>> result
+    ['foo.py']
     """
     pattern = f"{prefix}*" if prefix else "*"
     matches = sorted(glob.glob(pattern))
@@ -122,20 +181,37 @@ def _path_completion_candidates(prefix: str) -> list[str]:
 def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
-    >>> _slash_completion_options("/", "/")
-    ['/calculate', '/cat', '/compact', '/grep', '/load_image', '/ls']
+    >>> root_opts = _slash_completion_options("/", "/")
+    >>> len(root_opts)
+    11
+    >>> root_opts[0], root_opts[-1]
+    ('/calculate', '/write_files')
     >>> _slash_completion_options("/l", "/l")
     ['/load_image', '/ls']
-    >>> opts = _slash_completion_options("/ls .g", ".g")
-    >>> ".git/" in opts or ".git" in opts
-    True
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     _ = Path(".git").mkdir()
+    ...     _ = Path(".github").mkdir()
+    ...     _ = Path(".gitignore").write_text("", encoding="utf-8")
+    ...     opts = _slash_completion_options("/ls .g", ".g")
+    ...     os.chdir(old)
+    >>> opts
+    ['.git/', '.github/', '.gitignore']
     >>> _slash_completion_options("hello", "h")
     []
     >>> _slash_completion_options("/bogus x", "x")
     []
-    >>> opts2 = _slash_completion_options("/ls ", "")
-    >>> len(opts2) >= 1
-    True
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     _ = (Path(d) / 'notes.txt').write_text('')
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     opts2 = _slash_completion_options("/ls ", "")
+    ...     os.chdir(old)
+    >>> opts2
+    ['notes.txt']
     """
     if not line.startswith("/"):
         return []
@@ -145,13 +221,12 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     if not parts:
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS)]
 
-    # Completing command name.
     if len(parts) == 1 and not line.endswith(" "):
         prefix = parts[0]
         return [f"/{cmd}" for cmd in sorted(SLASH_COMMANDS) if cmd.startswith(prefix)]
 
     cmd = parts[0]
-    if cmd not in {"ls", "cat", "grep", "load_image"}:
+    if cmd not in {"ls", "cat", "grep", "load_image", "doctests", "write_file", "rm", "pip_install"}:
         return []
 
     if line.endswith(" "):
@@ -161,8 +236,10 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
         current = text
         arg_index = len(parts) - 2
 
-    if cmd in {"ls", "cat", "load_image"} and arg_index == 0:
+    if cmd in {"ls", "cat", "load_image", "doctests", "write_file", "rm"} and arg_index == 0:
         return _path_completion_candidates(current)
+    if cmd == "pip_install" and arg_index == 0:
+        return []
     if cmd == "grep" and arg_index == 1:
         return _path_completion_candidates(current)
     return []
@@ -196,6 +273,53 @@ def _build_readline_completer():
         return None
 
     return _completer
+
+
+def _doctest_status(tool_name: str, tool_output: str) -> str | None:
+    """Return doctest status: 'pass', 'fail', or None if output is unrelated.
+
+    >>> _doctest_status("ls", "README.md")
+    >>> _doctest_status("doctests", "Test passed.")
+    'pass'
+    >>> _doctest_status("doctests", "***Test Failed*** 1 failures.")
+    'fail'
+    >>> _doctest_status("write_file", "Committed abc123\\nDoctests for x.py:\\nTest passed.")
+    'pass'
+    >>> _doctest_status("write_files", "Committed abc123\\nDoctests for x.py:\\nFAILED")
+    'fail'
+    """
+    lowered = tool_output.lower()
+    ran_doctests = (
+        tool_name == "doctests"
+        or "doctests for " in lowered
+        or "test passed." in lowered
+        or "***test failed***" in lowered
+        or "items passed" in lowered
+    )
+    if not ran_doctests:
+        return None
+
+    failed_markers = (
+        "***test failed***",
+        "failed test",
+        "failures.",
+        "\nfailed",
+        "traceback",
+        "error:",
+    )
+    if any(marker in lowered for marker in failed_markers):
+        return "fail"
+
+    passed_markers = (
+        "test passed.",
+        "items passed",
+        "passed and 0 failed",
+        "0 failed",
+    )
+    if any(marker in lowered for marker in passed_markers):
+        return "pass"
+
+    return "fail"
 
 
 class Chat:
@@ -237,7 +361,7 @@ class Chat:
         """Initialize chat state and optionally inject a client for tests.
 
         >>> c = Chat(client=object())
-        >>> isinstance(c.messages, list)
+        >>> type(c.messages) is list
         True
         >>> c.provider
         'groq'
@@ -249,10 +373,7 @@ class Chat:
         self.messages: list[dict[str, Any]] = [
             {
                 "role": "system",
-                "content": (
-                    "You are a coding assistant that can inspect project files with tools. "
-                    "Never claim to read files unless tool output shows it."
-                ),
+                "content": SYSTEM_PROMPT,
             }
         ]
 
@@ -271,8 +392,8 @@ class Chat:
         >>> try:
         ...     _ = c2.client
         ... except RuntimeError as e:
-        ...     print("Missing OPENROUTER_API_KEY" in str(e))
-        True
+        ...     print(str(e))
+        Missing OPENROUTER_API_KEY for non-groq providers
         >>> os.getenv = lambda key, default=None: "gsk_demo" if key == "GROQ_API_KEY" else None
         >>> c3 = Chat(client=None, provider="groq")
         >>> c3.client.__class__.__name__
@@ -310,8 +431,16 @@ class Chat:
         'ERROR: unsafe path'
         >>> c.run_tool("cat", {"path": "missing.txt"})
         'ERROR: file not found'
-        >>> isinstance(c.run_tool("grep", {"pattern": "x", "path": "*.py"}), str)
-        True
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> with tempfile.TemporaryDirectory() as _d:
+        ...     _old = os.getcwd()
+        ...     os.chdir(_d)
+        ...     _ = (Path(_d) / 'test.py').write_text('hello world')
+        ...     _r = c.run_tool('grep', {'pattern': 'nomatch_xyz', 'path': '*.py'})
+        ...     os.chdir(_old)
+        >>> _r
+        ''
         >>> from types import SimpleNamespace
         >>> class SummaryOnly:
         ...     def create(self, **kwargs):
@@ -325,6 +454,16 @@ class Chat:
         1
         >>> c.run_tool("load_image", {"path": "../x.png"})
         'ERROR: unsafe path'
+        >>> c.run_tool("doctests", {"path": "../bad.py"})
+        'ERROR: unsafe path'
+        >>> c.run_tool("write_file", {"path": "/etc/bad", "contents": "x", "commit_message": "bad"})
+        'ERROR: unsafe path: /etc/bad'
+        >>> c.run_tool("write_files", {"files": [{"path": "../x", "contents": "y"}], "commit_message": "bad"})
+        'ERROR: unsafe path: ../x'
+        >>> c.run_tool("rm", {"path": "../bad.txt"})
+        'ERROR: unsafe path'
+        >>> c.run_tool("pip_install", {"library_name": "../bad"})
+        'ERROR: invalid library name'
         >>> c.run_tool("nope", {})
         'ERROR: unknown tool: nope'
         """
@@ -340,6 +479,24 @@ class Chat:
             return self.compact_messages()
         if name == "load_image":
             return self.load_image_into_messages(str(args.get("path", "")))
+        if name == "doctests":
+            return run_doctests(str(args.get("path", "")))
+        if name == "write_file":
+            return run_write_file(
+                str(args.get("path", "")),
+                args.get("contents"),
+                str(args.get("commit_message", "update")),
+                args.get("diff"),
+            )
+        if name == "write_files":
+            return run_write_files(
+                args.get("files", []),
+                str(args.get("commit_message", "update")),
+            )
+        if name == "rm":
+            return run_rm(str(args.get("path", "")))
+        if name == "pip_install":
+            return run_pip_install(str(args.get("library_name", "")))
         return f"ERROR: unknown tool: {name}"
 
     def _debug_tool(self, name: str, args: dict[str, Any]) -> None:
@@ -366,6 +523,8 @@ class Chat:
             print(f"[tool] /grep {args.get('pattern', '')} {args.get('path', '')}".rstrip())
         elif name == "compact":
             print("[tool] /compact")
+        elif name == "pip_install":
+            print(f"[tool] /pip_install {args.get('library_name', '')}".rstrip())
         else:
             print(f"[tool] /{name} {args}")
 
@@ -383,10 +542,19 @@ class Chat:
         'short summary'
         >>> len(c.messages)
         1
-        >>> c.messages[0]['content'].startswith('Conversation summary')
-        True
+        >>> c.messages[0]['content']
+        'Conversation summary (compacted):\\\\nshort summary'
         """
-        if len(self.messages) <= 1:
+        # Treat startup-only context (system prompt + optional AGENTS preload) as empty.
+        # This keeps `/compact` behavior stable for one-shot sessions that only loaded AGENTS.md.
+        startup_only = (
+            len(self.messages) == 3
+            and self.messages[0].get("role") == "system"
+            and self.messages[1].get("role") == "user"
+            and self.messages[1].get("content") == "/cat AGENTS.md"
+            and self.messages[2].get("role") == "assistant"
+        )
+        if len(self.messages) <= 1 or startup_only:
             summary = "No prior context to summarize."
             self.messages = [
                 {
@@ -396,7 +564,6 @@ class Chat:
             ]
             return summary
 
-        # Subagent shares provider/model/client but uses an isolated prompt/messages.
         subagent = Chat(
             model=self.model,
             provider=self.provider,
@@ -410,10 +577,7 @@ class Chat:
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Summarize the chat history in 1-5 short lines. "
-                        "Keep concrete facts and prior tool findings."
-                    ),
+                    "content": COMPACT_PROMPT,
                 },
                 {
                     "role": "user",
@@ -437,18 +601,10 @@ class Chat:
     def load_image_into_messages(self, path: str) -> str:
         """Load a local image and append it to chat context as multimodal content.
 
-        >>> import tempfile, os
-        >>> from pathlib import Path
         >>> c = Chat(client=object())
-        >>> with tempfile.TemporaryDirectory() as d:
-        ...     p = Path(d) / "a.png"
-        ...     _ = p.write_bytes(b"\\x89PNG\\r\\n\\x1a\\nabc")
-        ...     old = os.getcwd()
-        ...     os.chdir(d)
-        ...     out = c.load_image_into_messages("a.png")
-        ...     os.chdir(old)
+        >>> out = c.load_image_into_messages("docs/test_image.png")
         >>> out
-        'Loaded image: a.png'
+        'Loaded image: docs/test_image.png'
         >>> c.messages[-1]["role"]
         'user'
         >>> c.load_image_into_messages("../bad.png")
@@ -506,18 +662,21 @@ class Chat:
         >>> c3 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=Endless())))
         >>> c3.send_message("loop", max_rounds=1)
         '2'
-        >>> class RepeatThenStop:
+        >>> class LsThenStop:
         ...     def __init__(self):
         ...         self.calls = 0
         ...     def create(self, **kwargs):
         ...         self.calls += 1
-        ...         func = SimpleNamespace(name='ls', arguments='{\"path\":\".github\"}')
-        ...         tc = SimpleNamespace(id='r1', function=func)
-        ...         msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...         if self.calls == 1:
+        ...             func = SimpleNamespace(name='ls', arguments='{\"path\":\".github\"}')
+        ...             tc = SimpleNamespace(id='r1', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         msg = SimpleNamespace(content='.github/workflows', tool_calls=[])
         ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-        >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RepeatThenStop())))
-        >>> c4.send_message("what folder is in .github?", max_rounds=3).startswith("workflows")
-        True
+        >>> c4 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LsThenStop())))
+        >>> c4.send_message("what folder is in .github?", max_rounds=3)
+        '.github/workflows'
         >>> class ValidationFallback:
         ...     def __init__(self):
         ...         self.calls = 0
@@ -539,11 +698,39 @@ class Chat:
         >>> c6 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=LoopNoResult())))
         >>> c6.send_message("loop", max_rounds=1)
         'ERROR: tool loop exceeded'
+        >>> class RalphClient:
+        ...     def __init__(self):
+        ...         self.calls = 0
+        ...     def create(self, **kwargs):
+        ...         self.calls += 1
+        ...         if self.calls == 1:
+        ...             func = SimpleNamespace(name='doctests', arguments='{"path":"x.py"}')
+        ...             tc = SimpleNamespace(id='d1', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         if self.calls == 2:
+        ...             msg = SimpleNamespace(content='final too early', tool_calls=[])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         if self.calls == 3:
+        ...             func = SimpleNamespace(name='doctests', arguments='{"path":"x.py"}')
+        ...             tc = SimpleNamespace(id='d2', function=func)
+        ...             msg = SimpleNamespace(content=None, tool_calls=[tc])
+        ...             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        ...         msg = SimpleNamespace(content='all good now', tool_calls=[])
+        ...         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        >>> c7 = Chat(client=SimpleNamespace(chat=SimpleNamespace(completions=RalphClient())))
+        >>> old_run_tool = Chat.run_tool
+        >>> vals = iter(["***Test Failed*** 1 failures.", "Test passed."])
+        >>> Chat.run_tool = lambda self, name, args: next(vals) if name == "doctests" else ""
+        >>> c7.send_message("fix tests", max_rounds=6)
+        'all good now'
+        >>> Chat.run_tool = old_run_tool
         """
         self.messages.append({"role": "user", "content": user_input})
         last_signature = None
         repeat_count = 0
         last_tool_result = ""
+        doctests_pending_fix = False
 
         for _ in range(max_rounds):
             try:
@@ -556,10 +743,8 @@ class Chat:
                     max_tokens=500,
                 )
             except Exception as exc:
-                if not _is_tool_validation_error(exc):
+                if "tool call validation failed" not in str(exc).lower():
                     raise
-                # Some providers occasionally hallucinate unsupported remote tools
-                # even when local tools are provided. Retry once with tools disabled.
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.messages,
@@ -600,6 +785,11 @@ class Chat:
                     self._debug_tool(name, args)
                     result = self.run_tool(name, args)
                     last_tool_result = result
+                    status = _doctest_status(name, result)
+                    if status == "fail":
+                        doctests_pending_fix = True
+                    elif status == "pass":
+                        doctests_pending_fix = False
                     self.messages.append(
                         {
                             "role": "tool",
@@ -611,9 +801,16 @@ class Chat:
                 continue
 
             content = getattr(message, "content", "") or ""
+            if doctests_pending_fix:
+                # Ralph loop: force another tool round until doctests pass.
+                self.messages.append({"role": "assistant", "content": content})
+                self.messages.append({"role": "user", "content": RALPH_RETRY_PROMPT})
+                continue
             self.messages.append({"role": "assistant", "content": content})
             return content
 
+        if doctests_pending_fix:
+            return "ERROR: doctests still failing after maximum tool rounds"
         if last_tool_result:
             return last_tool_result
         return "ERROR: tool loop exceeded"
@@ -624,8 +821,8 @@ class Chat:
         >>> c = Chat(client=object())
         >>> c.handle_slash_command('/ls ..')
         'ERROR: unsafe path'
-        >>> c.handle_slash_command('/grep hello *.md') in ('', 'README.md:hello')
-        True
+        >>> c.handle_slash_command('/grep nomatch_xyz README.md')
+        ''
         >>> c.handle_slash_command('/')
         'ERROR: empty command'
         >>> c.handle_slash_command('/cat')
@@ -641,6 +838,12 @@ class Chat:
         'USAGE: /compact'
         >>> c2.handle_slash_command('/load_image')
         'USAGE: /load_image <path>'
+        >>> c.handle_slash_command('/doctests')
+        'USAGE: /doctests <path>'
+        >>> c.handle_slash_command('/rm')
+        'USAGE: /rm <path>'
+        >>> c.handle_slash_command('/pip_install')
+        'USAGE: /pip_install <library_name>'
         >>> import tempfile
         >>> from pathlib import Path
         >>> with tempfile.TemporaryDirectory() as d:
@@ -701,6 +904,24 @@ class Chat:
             if len(params) != 1:
                 return "USAGE: /load_image <path>"
             result = self.load_image_into_messages(params[0])
+        elif command == "doctests":
+            if len(params) != 1:
+                return "USAGE: /doctests <path>"
+            result = run_doctests(params[0])
+        elif command == "rm":
+            if len(params) != 1:
+                return "USAGE: /rm <path>"
+            result = run_rm(params[0])
+        elif command == "pip_install":
+            if len(params) != 1:
+                return "USAGE: /pip_install <library_name>"
+            result = run_pip_install(params[0])
+        elif command == "write_file":
+            if len(params) != 3:
+                return "USAGE: /write_file <path> <contents> <commit_message>"
+            result = run_write_file(params[0], params[1], params[2])
+        elif command == "write_files":
+            return "USAGE: use the LLM to call write_files with multiple files"
         else:
             return f"ERROR: unknown command /{command}"
 
@@ -751,6 +972,12 @@ def repl(
     import readline
 
     chat = Chat(client=client, provider=provider, debug=debug)
+
+    if os.path.isfile("AGENTS.md"):
+        agents_content = run_cat("AGENTS.md")
+        chat.messages.append({"role": "user", "content": "/cat AGENTS.md"})
+        chat.messages.append({"role": "assistant", "content": agents_content})
+
     readline.parse_and_bind("tab: complete")
     readline.set_completer_delims(" \t\n")
     readline.set_completer(_build_readline_completer())
@@ -785,8 +1012,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
-    """Run CLI entrypoint for either one-shot mode or interactive REPL mode.
+    """Run CLI entrypoint: checks for .git, loads AGENTS.md, then runs one-shot or REPL.
 
+    >>> import tempfile, os
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     code = run_cli(["hello"], client=object())
+    ...     os.chdir(old)
+    ERROR: no .git folder found. Please run docchat from inside a git repository.
+    >>> code
+    1
     >>> run_cli(["/calculate 4*5"], client=object())
     20
     0
@@ -800,10 +1036,20 @@ def run_cli(argv: list[str] | None = None, client: Any | None = None) -> int:
     OK:hello
     0
     >>> Chat.send_message = old_send
-
     """
     args = parse_args(argv)
+
+    error = check_startup()
+    if error:
+        print(error)
+        return 1
+
     chat = Chat(client=client, provider=args.provider, debug=args.debug)
+
+    if os.path.isfile("AGENTS.md"):
+        agents_content = run_cat("AGENTS.md")
+        chat.messages.append({"role": "user", "content": "/cat AGENTS.md"})
+        chat.messages.append({"role": "assistant", "content": agents_content})
 
     if args.message is not None:
         if args.message.startswith("/"):

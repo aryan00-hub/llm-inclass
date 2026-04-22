@@ -9,7 +9,11 @@ TOOL_SPEC = {
     "type": "function",
     "function": {
         "name": "compact",
-        "description": "Summarize current chat history into 1-5 lines and replace memory.",
+        "description": (
+            "Summarize prior chat history into 1-5 lines and replace stored context. "
+            "Use this when conversations get long to reduce token usage, speed up replies, "
+            "and keep the model focused on recent relevant context."
+        ),
         "parameters": {
             "type": "object",
             "properties": {},

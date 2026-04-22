@@ -33,17 +33,7 @@ TOOL_SPEC = {
 def load_image_as_data_url(path: str) -> str:
     """Return a data URL for a safe local image path.
 
-    >>> import tempfile
-    >>> from pathlib import Path
-    >>> png = b"\\x89PNG\\r\\n\\x1a\\nabc"
-    >>> with tempfile.TemporaryDirectory() as d:
-    ...     p = Path(d) / "x.png"
-    ...     _ = p.write_bytes(png)
-    ...     import os
-    ...     old = os.getcwd()
-    ...     os.chdir(d)
-    ...     out = load_image_as_data_url("x.png")
-    ...     os.chdir(old)
+    >>> out = load_image_as_data_url("docs/test_image.png")
     >>> out.startswith("data:image/png;base64,")
     True
     >>> load_image_as_data_url("../secret.png")
