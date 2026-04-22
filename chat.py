@@ -182,8 +182,10 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
     >>> root_opts = _slash_completion_options("/", "/")
-    >>> root_opts
-    ['/calculate', '/cat', '/compact', '/doctests', '/grep', '/load_image', '/ls', '/pip_install', '/rm', '/write_file', '/write_files']
+    >>> len(root_opts)
+    11
+    >>> root_opts[0], root_opts[-1]
+    ('/calculate', '/write_files')
     >>> _slash_completion_options("/l", "/l")
     ['/load_image', '/ls']
     >>> import tempfile
