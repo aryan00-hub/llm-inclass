@@ -131,16 +131,17 @@ def _json_safe(obj: Any) -> Any:
     ...         raise ValueError("bad")
     >>> _json_safe(BadD())
     {'ok': True}
-    >>> isinstance(_json_safe(object()), str)
+    >>> type(_json_safe(object())) is str
     True
     """
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    obj_type = type(obj)
+    if obj is None or obj_type in (str, int, float, bool):
         return obj
-    if isinstance(obj, list):
+    if obj_type is list:
         return [_json_safe(x) for x in obj]
-    if isinstance(obj, tuple):
+    if obj_type is tuple:
         return [_json_safe(x) for x in obj]
-    if isinstance(obj, dict):
+    if obj_type is dict:
         return {str(k): _json_safe(v) for k, v in obj.items()}
     if hasattr(obj, "model_dump"):
         try:
@@ -351,7 +352,7 @@ class Chat:
         """Initialize chat state and optionally inject a client for tests.
 
         >>> c = Chat(client=object())
-        >>> isinstance(c.messages, list)
+        >>> type(c.messages) is list
         True
         >>> c.provider
         'groq'

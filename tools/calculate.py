@@ -50,15 +50,15 @@ def _eval_expr(node: ast.AST) -> float:
     >>> _eval_expr(ast.parse("-7", mode="eval").body)
     -7.0
     """
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    if type(node) is ast.Constant and type(node.value) in (int, float):
         return float(node.value)
 
-    if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
+    if type(node) is ast.BinOp and type(node.op) in _BIN_OPS:
         left = _eval_expr(node.left)
         right = _eval_expr(node.right)
         return _BIN_OPS[type(node.op)](left, right)
 
-    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
+    if type(node) is ast.UnaryOp and type(node.op) in _UNARY_OPS:
         return _UNARY_OPS[type(node.op)](_eval_expr(node.operand))
 
     raise ValueError("unsupported expression")

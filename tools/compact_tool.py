@@ -28,7 +28,5 @@ def compact_usage_text() -> str:
 
     >>> compact_usage_text()
     '/compact'
-    >>> 'compact' in compact_usage_text()
-    True
     """
     return "/compact"

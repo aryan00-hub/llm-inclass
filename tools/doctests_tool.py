@@ -65,7 +65,7 @@ def run_doctests(path: str) -> str:
     ...     os.chdir(d)
     ...     out = run_doctests("sample.py")
     ...     os.chdir(old)
-    >>> "ok" in out or "passed" in out or "items passed" in out
+    >>> out.endswith("Test passed.")
     True
     """
     if not is_path_safe(path):

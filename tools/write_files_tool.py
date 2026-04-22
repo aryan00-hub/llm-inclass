@@ -236,10 +236,10 @@ def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
     'hello'
     >>> ok_b
     'world'
-    >>> "Committed" in out
+    >>> out.startswith("Committed ")
     True
-    >>> "Doctests for" in out
-    False
+    >>> len(out.splitlines())
+    1
     >>> with tempfile.TemporaryDirectory() as d:
     ...     old = os.getcwd()
     ...     os.chdir(d)
@@ -251,10 +251,10 @@ def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
     ...     os.chdir(old)
     >>> made
     True
-    >>> "Doctests for pkg/x.py:" in out2
-    True
-    >>> "passed" in out2.lower()
-    True
+    >>> out2.splitlines()[1]
+    'Doctests for pkg/x.py:'
+    >>> out2.splitlines()[-1]
+    'Test passed.'
     >>> with tempfile.TemporaryDirectory() as d:
     ...     old = os.getcwd()
     ...     os.chdir(d)
@@ -272,10 +272,10 @@ def run_write_files(files: list[dict[str, str]], commit_message: str) -> str:
     ...     os.chdir(old)
     >>> patched
     'A\\nB\\n'
-    >>> "Committed" in out3
+    >>> out3.startswith("Committed ")
     True
     """
-    if not isinstance(files, list) or not files:
+    if type(files) is not list or not files:
         return "ERROR: files must be a non-empty list"
 
     paths: list[str] = []
