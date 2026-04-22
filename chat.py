@@ -182,19 +182,26 @@ def _slash_completion_options(line: str, text: str) -> list[str]:
     """Return completion options for slash commands and file arguments.
 
     >>> root_opts = _slash_completion_options("/", "/")
-    >>> '/pip_install' in root_opts and '/write_files' in root_opts
-    True
+    >>> root_opts
+    ['/calculate', '/cat', '/compact', '/doctests', '/grep', '/load_image', '/ls', '/pip_install', '/rm', '/write_file', '/write_files']
     >>> _slash_completion_options("/l", "/l")
     ['/load_image', '/ls']
-    >>> opts = _slash_completion_options("/ls .g", ".g")
-    >>> ".git/" in opts or ".git" in opts
-    True
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> with tempfile.TemporaryDirectory() as d:
+    ...     old = os.getcwd()
+    ...     os.chdir(d)
+    ...     _ = Path(".git").mkdir()
+    ...     _ = Path(".github").mkdir()
+    ...     _ = Path(".gitignore").write_text("", encoding="utf-8")
+    ...     opts = _slash_completion_options("/ls .g", ".g")
+    ...     os.chdir(old)
+    >>> opts
+    ['.git/', '.github/', '.gitignore']
     >>> _slash_completion_options("hello", "h")
     []
     >>> _slash_completion_options("/bogus x", "x")
     []
-    >>> import tempfile
-    >>> from pathlib import Path
     >>> with tempfile.TemporaryDirectory() as d:
     ...     _ = (Path(d) / 'notes.txt').write_text('')
     ...     old = os.getcwd()
@@ -383,8 +390,8 @@ class Chat:
         >>> try:
         ...     _ = c2.client
         ... except RuntimeError as e:
-        ...     print("Missing OPENROUTER_API_KEY" in str(e))
-        True
+        ...     print(str(e))
+        Missing OPENROUTER_API_KEY for non-groq providers
         >>> os.getenv = lambda key, default=None: "gsk_demo" if key == "GROQ_API_KEY" else None
         >>> c3 = Chat(client=None, provider="groq")
         >>> c3.client.__class__.__name__
