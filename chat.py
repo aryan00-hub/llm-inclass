@@ -535,7 +535,16 @@ class Chat:
         >>> c.messages[0]['content']
         'Conversation summary (compacted):\\\\nshort summary'
         """
-        if len(self.messages) <= 1:
+        # Treat startup-only context (system prompt + optional AGENTS preload) as empty.
+        # This keeps `/compact` behavior stable for one-shot sessions that only loaded AGENTS.md.
+        startup_only = (
+            len(self.messages) == 3
+            and self.messages[0].get("role") == "system"
+            and self.messages[1].get("role") == "user"
+            and self.messages[1].get("content") == "/cat AGENTS.md"
+            and self.messages[2].get("role") == "assistant"
+        )
+        if len(self.messages) <= 1 or startup_only:
             summary = "No prior context to summarize."
             self.messages = [
                 {
