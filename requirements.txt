@@ -4,5 +4,5 @@ python-dotenv
 pytest
 coverage
 flake8
-build
-twine
+# build/twine are needed for deploying your system,
+# but they are not needed for the users to install and so shouldn't be here
